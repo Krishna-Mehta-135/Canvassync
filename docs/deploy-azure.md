@@ -1,4 +1,4 @@
-# Deployment: CanvasSync + Knowdex on Azure for Students
+# Deployment: CanvasSync + Knowdex on Azure
 
 Both frontends run on Vercel. Both backends run on one small Azure setup paid
 for by the Azure for Students offer: two VMs and one managed Postgres server,
