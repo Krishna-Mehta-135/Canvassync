@@ -110,7 +110,7 @@ jobs:
           proxy_host: ${{ vars.APP_VM_IP }}
           proxy_username: ${{ secrets.VM_USER }}
           proxy_key: ${{ secrets.VM_SSH_KEY }}
-          source: "docker-compose.prod.yml"
+          source: "docker-compose.data.yml"
           target: "/opt/canvas"
 
       - name: SSH deploy to Data VM
@@ -133,7 +133,7 @@ jobs:
             EOF
             chmod 600 .env
 
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans redis rabbitmq
+            docker compose -f docker-compose.data.yml up -d --remove-orphans
 
   # ── 3b. DEPLOY APPS → App VM (Caddy + API + WS + AI worker) ─────────────────
   deploy-app:

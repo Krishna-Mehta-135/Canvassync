@@ -1,0 +1,55 @@
+# docker-compose.data.yml — CanvasSync Data VM (B2pts v2, ARM, private only)
+#
+#   docker compose -f docker-compose.data.yml up -d
+#
+# Shared by CanvasSync and Knowdex over the private VNet. Official images are
+# multi-arch, so they run on ARM as-is. The VM has no public IP; only the VNet
+# can reach 6379/5672.
+
+services:
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASS:?REDIS_PASS is required on data VM}
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASS\" --no-auth-warning ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    environment:
+      REDIS_PASS: ${REDIS_PASS}
+    mem_limit: 320m
+    restart: unless-stopped
+
+  rabbitmq:
+    # Plain image (no management plugin) to save ~100 MB of RAM. Use
+    # `docker compose exec rabbitmq rabbitmqctl list_queues` for inspection.
+    image: rabbitmq:3-alpine
+    ports:
+      - "5672:5672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-canvas}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?RABBITMQ_PASS is required on data VM}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    # RabbitMQ reads the cgroup limit and sets its memory watermark to 40% of it.
+    mem_limit: 448m
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  rabbitmq_data:
