@@ -1,0 +1,37 @@
+# Caddyfile — public entrypoint on the App VM (automatic Let's Encrypt HTTPS).
+# Shared by both apps on this VM:
+#   CanvasSync services are on this compose project's default network.
+#   Knowdex services (separate compose project in /opt/knowdex) join the
+#   external `edge` network as knowdex-http / knowdex-ws.
+# DNS: A records for every host below → App VM public IP.
+
+(websocket_split) {
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+}
+
+# ── CanvasSync ────────────────────────────────────────────────────────────────
+
+api.canvassync.tech {
+	import websocket_split
+	reverse_proxy @websocket ws-backend:8081
+	reverse_proxy http-backend:3001
+}
+
+ws.canvassync.tech {
+	reverse_proxy ws-backend:8081
+}
+
+# ── Knowdex ───────────────────────────────────────────────────────────────────
+
+api.knowdex.me {
+	import websocket_split
+	reverse_proxy @websocket knowdex-ws:8080
+	reverse_proxy knowdex-http:8000
+}
+
+ws.knowdex.me {
+	reverse_proxy knowdex-ws:8080
+}

@@ -1,8 +1,30 @@
 name: Deploy Canvas
 
+# Push to main → CI → build images to GHCR → deploy to the Azure VMs → Vercel.
+#
+# Azure topology (see docker-compose.prod.yml):
+#   App VM  (public)  → caddy, http-backend, ws-backend, ai-worker (+ Knowdex)
+#   Data VM (private) → redis, rabbitmq — reached via the App VM as SSH jump host
+#
+# Required GitHub variables:
+#   APP_VM_IP              — App VM public IP
+#   DATA_VM_PRIVATE_IP     — Data VM private IP  (e.g. 10.0.1.5)
+#   API_HEALTH_URL         — https://api.canvassync.tech/health
+#
+# Required GitHub secrets:
+#   VM_USER, VM_SSH_KEY (same key on all 3 VMs),
+#   DATABASE_URL (Azure Postgres, with ?sslmode=require),
+#   REDIS_PASS, RABBITMQ_USER, RABBITMQ_PASS (hex strings — no URL-escaping needed),
+#   JWT_SECRET, INTERNAL_SECRET, GEMINI_API_KEY, GEMINI_MODEL_CANDIDATES,
+#   GMAIL_USER, GMAIL_APP_PASSWORD, WEB_APP_URL, ALLOWED_ORIGINS, COOKIE_DOMAIN,
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_CALLBACK_URL,
+#   GH_CLIENT_ID, GH_CLIENT_SECRET, GH_CALLBACK_URL,
+#   NEXT_PUBLIC_API_URL, NEXT_PUBLIC_WS_URL, VERCEL_DEPLOY_HOOK
+
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -50,12 +72,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v3
 
+      # The App VM is x86, so amd64 images are enough.
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           target: runner
+          platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/${{ env.REPO_LOWER }}/${{ matrix.service }}:latest
@@ -67,76 +91,92 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
 
-  # ── 3a. DEPLOY APPS → VM 1 & 2 (App Nodes) ──────────────────────────────────
-  deploy-apps:
-    name: Deploy API/WS to ${{ matrix.vm_ip }}
+  # ── 3a. DEPLOY DATA → Data VM (Redis + RabbitMQ) ─────────────────────────────
+  # `up -d` is a no-op when nothing changed, so data containers are not restarted
+  # on every push.
+  deploy-data:
+    name: Deploy Redis/RabbitMQ to Data VM
     runs-on: ubuntu-latest
-    needs: build-and-push
-    strategy:
-      fail-fast: false
-      matrix:
-        vm_ip: [ "${{ vars.VM_1_IP }}", "${{ vars.VM_2_IP }}" ]
+    needs: [ci]
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Copy docker-compose file to VM
-        uses: appleboy/scp-action@master
+
+      - name: Copy docker-compose file to Data VM
+        uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ matrix.vm_ip }}
+          host: ${{ vars.DATA_VM_PRIVATE_IP }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          proxy_host: ${{ vars.APP_VM_IP }}
+          proxy_username: ${{ secrets.VM_USER }}
+          proxy_key: ${{ secrets.VM_SSH_KEY }}
           source: "docker-compose.prod.yml"
+          target: "/opt/canvas"
+
+      - name: SSH deploy to Data VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.DATA_VM_PRIVATE_IP }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          proxy_host: ${{ vars.APP_VM_IP }}
+          proxy_username: ${{ secrets.VM_USER }}
+          proxy_key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/canvas
+
+            cat <<EOF > .env
+            REDIS_PASS=${{ secrets.REDIS_PASS }}
+            RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
+            RABBITMQ_PASS=${{ secrets.RABBITMQ_PASS }}
+            EOF
+            chmod 600 .env
+
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans redis rabbitmq
+
+  # ── 3b. DEPLOY APPS → App VM (Caddy + API + WS + AI worker) ─────────────────
+  deploy-app:
+    name: Deploy API/WS/worker to App VM
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-data]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy compose + Caddyfile to App VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.APP_VM_IP }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "docker-compose.prod.yml,Caddyfile"
           target: "/opt/canvas"
 
       - name: SSH deploy to App VM
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ matrix.vm_ip }}
+          host: ${{ vars.APP_VM_IP }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
             set -euo pipefail
-            mkdir -p /opt/canvas && cd /opt/canvas
+            cd /opt/canvas
 
-            # ── Cloud SQL Auth Proxy ──────────────────────────────────────────
-            if ! command -v cloud-sql-proxy &> /dev/null; then
-              sudo curl -o /usr/local/bin/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64
-              sudo chmod +x /usr/local/bin/cloud-sql-proxy
-            fi
-            if ! systemctl is-active --quiet cloud-sql-proxy; then
-              sudo systemctl start cloud-sql-proxy
-            fi
-            # ─────────────────────────────────────────────────────────────────
-
-            # Write the CA cert from secret
-            mkdir -p certs
-            echo "${{ secrets.DB_SSL_CA_CERT }}" > certs/server-ca.pem
-
-            # Force lowercase repo name for Docker images
             LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
 
-            # Inject all environment variables into a .env file on the VM
             cat <<EOF > .env
-            NODE_ENV=production
-            NODE_EXTRA_CA_CERTS=/opt/canvas/certs/server-ca.pem
             GITHUB_REPO=$LOWER_REPO
             DATABASE_URL=${{ secrets.DATABASE_URL }}
-            REDIS_URL=redis://10.190.0.4:6379
-            RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}
-            RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
-            RABBITMQ_PASS=${{ secrets.RABBITMQ_PASS }}
+            REDIS_URL=redis://:${{ secrets.REDIS_PASS }}@${{ vars.DATA_VM_PRIVATE_IP }}:6379
+            RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@${{ vars.DATA_VM_PRIVATE_IP }}:5672
             JWT_SECRET=${{ secrets.JWT_SECRET }}
             INTERNAL_SECRET=${{ secrets.INTERNAL_SECRET }}
-            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-            GEMINI_MODEL_CANDIDATES=${{ secrets.GEMINI_MODEL_CANDIDATES }}
             GMAIL_USER=${{ secrets.GMAIL_USER }}
             GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
             WEB_APP_URL=${{ secrets.WEB_APP_URL }}
-            FRONTEND_URL=${{ secrets.WEB_APP_URL }}
-            HTTP_BACKEND_INTERNAL_URL=http://localhost:3001
-            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
-            NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
             ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            GEMINI_MODEL_CANDIDATES=${{ secrets.GEMINI_MODEL_CANDIDATES }}
             GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
             GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
             GOOGLE_CALLBACK_URL=${{ secrets.GOOGLE_CALLBACK_URL }}
@@ -145,104 +185,49 @@ jobs:
             GH_CALLBACK_URL=${{ secrets.GH_CALLBACK_URL }}
             COOKIE_DOMAIN=${{ secrets.COOKIE_DOMAIN }}
             EOF
+            chmod 600 .env
+
+            docker network inspect edge >/dev/null 2>&1 || docker network create edge
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose -f docker-compose.prod.yml pull http-backend ws-backend
-            docker compose -f docker-compose.prod.yml up -d --no-deps --remove-orphans http-backend ws-backend
-            docker image prune -f
+            docker compose -f docker-compose.prod.yml pull http-backend ws-backend ai-worker caddy
 
-  # ── 3b. DEPLOY WORKER → VM 3 (Infra/Worker Node) ────────────────────────────
-  deploy-worker:
-    name: Deploy AI Worker to Worker VM
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    steps:
-      - uses: actions/checkout@v4
+            # Apply pending Prisma migrations before the new API starts serving.
+            docker compose -f docker-compose.prod.yml run --rm --no-deps \
+              -w /app/packages/db http-backend \
+              ./node_modules/.bin/prisma migrate deploy
 
-      - name: Copy docker-compose file to Worker VM
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ vars.WORKER_VM_IP }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          source: "docker-compose.prod.yml"
-          target: "/opt/canvas"
-
-      - name: SSH deploy to Worker VM
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ vars.WORKER_VM_IP }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
-          script: |
-            set -euo pipefail
-            mkdir -p /opt/canvas && cd /opt/canvas
-
-            # ── Cloud SQL Auth Proxy ──────────────────────────────────────────
-            if ! command -v cloud-sql-proxy &> /dev/null; then
-              sudo curl -o /usr/local/bin/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64
-              sudo chmod +x /usr/local/bin/cloud-sql-proxy
-            fi
-            if ! systemctl is-active --quiet cloud-sql-proxy; then
-              sudo systemctl start cloud-sql-proxy
-            fi
-            # ─────────────────────────────────────────────────────────────────
-
-            # Write the CA cert from secret
-            mkdir -p certs
-            echo "${{ secrets.DB_SSL_CA_CERT }}" > certs/server-ca.pem
-
-            # 🚨 Fix 1: Force lowercase repo name for Docker images
-            LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-
-            # Worker VM only needs infrastructure connection secrets
-            cat <<EOF > .env
-            NODE_ENV=production
-            NODE_EXTRA_CA_CERTS=/opt/canvas/certs/server-ca.pem
-            GITHUB_REPO=$LOWER_REPO
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            REDIS_URL=redis://10.190.0.4:6379
-            RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}
-            RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
-            RABBITMQ_PASS=${{ secrets.RABBITMQ_PASS }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            INTERNAL_SECRET=${{ secrets.INTERNAL_SECRET }}
-            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-            WEB_APP_URL=${{ secrets.WEB_APP_URL }}
-            FRONTEND_URL=${{ secrets.WEB_APP_URL }}
-            HTTP_BACKEND_INTERNAL_URL=http://10.190.0.2:3001
-            ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}
-            COOKIE_DOMAIN=${{ secrets.COOKIE_DOMAIN }}
-            EOF
-
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose -f docker-compose.prod.yml pull ai-worker
-            docker compose -f docker-compose.prod.yml up -d --no-deps --remove-orphans ai-worker
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans caddy http-backend ws-backend ai-worker
+            # Pick up Caddyfile edits without dropping connections.
+            docker compose -f docker-compose.prod.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile || true
             docker image prune -f
 
   # ── 4. DEPLOY FRONTEND → VERCEL ─────────────────────────────────────────────
   deploy-vercel:
     name: Deploy frontend to Vercel
     runs-on: ubuntu-latest
-    needs: [deploy-apps, deploy-worker]   # This ensures GCP VMs are updated first
+    needs: [deploy-app]
 
     steps:
-      - name: Wait for GCP backend health
+      - name: Wait for backend health
         run: |
-          # Check backend health before triggering frontend rebuild
-          for IP in "${{ vars.VM_1_IP }}" "${{ vars.VM_2_IP }}"; do
-            echo "Checking health for $IP..."
-            for i in $(seq 1 10); do
-              if curl -sf "http://$IP:3001/health" > /dev/null 2>&1; then
-                echo "  ✓ $IP is healthy"
-                break
-              fi
-              echo "  attempt $i/10 — retrying in 10s"
-              sleep 10
-            done
+          for i in $(seq 1 20); do
+            if curl -sf --max-time 10 "${{ vars.API_HEALTH_URL }}" > /dev/null 2>&1; then
+              echo "✓ backend is healthy"
+              exit 0
+            fi
+            echo "attempt $i/20 — retrying in 10s"
+            sleep 10
           done
+          echo "backend never became healthy"
+          exit 1
 
       - name: Trigger Vercel deploy hook
         run: |
-          # This curl command tells Vercel to start the build
-          curl -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}")
+          if echo "$STATUS" | grep -qE '^(200|201)$'; then
+            echo "Vercel deploy triggered successfully (HTTP $STATUS)."
+          else
+            echo "Vercel deploy hook returned HTTP $STATUS — failing."
+            exit 1
+          fi
