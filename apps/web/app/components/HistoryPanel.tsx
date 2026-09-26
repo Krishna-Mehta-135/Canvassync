@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { render, type CanvasState, type Shape, type Viewport } from "@repo/canvas-engine";
 import { apiClient } from "../lib/apiClient";
 import { HTTP_BACKEND } from "../../config";
+import { fitViewport } from "../lib/viewport";
 
 type HistoryEntry = { id: number; shapeCount: number; createdAt: string };
 
@@ -15,9 +16,14 @@ type HistoryPanelProps = {
   onClose: () => void;
   onRestored: () => void;
   onError: (message: string) => void;
+  /** Base name for exported files (no extension). */
+  fileName: string;
 };
 
 const PLAY_INTERVAL_MS = 900;
+const VIDEO_WIDTH = 1280;
+const VIDEO_HEIGHT = 720;
+const VIDEO_FRAME_MS = 900;
 
 function formatWhen(iso: string) {
   const date = new Date(iso);
@@ -41,6 +47,7 @@ export function HistoryPanel({
   onClose,
   onRestored,
   onError,
+  fileName,
 }: HistoryPanelProps) {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   // Index into `entries` (oldest → newest); entries.length means "live".
@@ -172,6 +179,100 @@ export function HistoryPanel({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [onClose, step]);
 
+  const [videoProgress, setVideoProgress] = useState<string | null>(null);
+
+  /** Renders every version, oldest → newest, into a WebM timelapse and downloads it. */
+  const exportVideo = async () => {
+    if (!entries || entries.length === 0 || videoProgress !== null) return;
+    if (typeof MediaRecorder === "undefined") {
+      onErrorRef.current("Video export isn't supported in this browser.");
+      return;
+    }
+
+    try {
+      // 1. Make sure every snapshot is loaded.
+      const frames: Shape[][] = [];
+      for (let i = 0; i < entries.length; i += 1) {
+        setVideoProgress(`Loading versions ${i + 1}/${entries.length}…`);
+        const entry = entries[i]!;
+        let shapes = cacheRef.current.get(entry.id);
+        if (!shapes) {
+          const response = await apiClient.get(`${HTTP_BACKEND}/room/${roomId}/history/${entry.id}`);
+          shapes = (response.data?.data?.snapshot?.shapes ?? []) as Shape[];
+          cacheRef.current.set(entry.id, shapes);
+        }
+        frames.push(shapes);
+      }
+
+      // 2. One fixed camera framing every version, so the growth is visible.
+      const viewport = fitViewport(frames.flat(), VIDEO_WIDTH, VIDEO_HEIGHT, {
+        padding: 80,
+        maxScale: 1.2,
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = VIDEO_WIDTH;
+      canvas.height = VIDEO_HEIGHT;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas unavailable");
+
+      const mimeType = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"].find(
+        (type) => MediaRecorder.isTypeSupported(type),
+      );
+      const recorder = new MediaRecorder(canvas.captureStream(30), {
+        ...(mimeType ? { mimeType } : {}),
+        videoBitsPerSecond: 4_000_000,
+      });
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      const finished = new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+      });
+
+      const drawFrame = (index: number) => {
+        render(ctx, canvas, frames[index]!, null, null, [], viewport, 1);
+        const entry = entries[index]!;
+        ctx.save();
+        ctx.font = "600 22px ui-sans-serif, system-ui, sans-serif";
+        ctx.fillStyle = "rgba(255,255,255,0.85)";
+        ctx.textBaseline = "top";
+        ctx.fillText(
+          `Version ${index + 1} of ${entries.length} · ${new Date(entry.createdAt).toLocaleString()}`,
+          24,
+          20,
+        );
+        ctx.restore();
+      };
+
+      // 3. Play the frames while recording.
+      recorder.start(250);
+      for (let i = 0; i < frames.length; i += 1) {
+        setVideoProgress(`Recording ${i + 1}/${frames.length}…`);
+        drawFrame(i);
+        await new Promise((resolve) => setTimeout(resolve, VIDEO_FRAME_MS));
+      }
+      drawFrame(frames.length - 1); // hold the final frame briefly
+      await new Promise((resolve) => setTimeout(resolve, VIDEO_FRAME_MS * 1.5));
+      recorder.stop();
+      await finished;
+
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${fileName}-timelapse.webm`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      onErrorRef.current("Couldn't export the timelapse video.");
+    } finally {
+      setVideoProgress(null);
+    }
+  };
+
   const handleRestore = () => {
     if (!canvasState || !previewShapes) return;
     // Goes through the normal edit path, so it syncs to everyone and is undoable.
@@ -270,6 +371,15 @@ export function HistoryPanel({
                 className="rounded-lg border border-current/20 px-3 py-1.5 text-xs disabled:opacity-40"
               >
                 Next →
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportVideo()}
+                disabled={videoProgress !== null}
+                className="rounded-lg border border-current/20 px-3 py-1.5 text-xs disabled:opacity-60"
+                title="Download the whole history as a short WebM video"
+              >
+                {videoProgress ?? "⬇ Export video"}
               </button>
               <button
                 type="button"

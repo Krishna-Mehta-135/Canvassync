@@ -3963,6 +3963,7 @@ export default function CanvasPage() {
           viewportRef={viewportLiveRef}
           isDark={isDark}
           onClose={() => setShowHistory(false)}
+          fileName={roomId ?? "canvas"}
           onRestored={() => pushToast("success", "Version restored.")}
           onError={(message) => pushToast("error", message)}
         />

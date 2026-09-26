@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { convertToPoints, render, type Shape, type Viewport } from "@repo/canvas-engine";
+import { render, type Shape, type Viewport } from "@repo/canvas-engine";
+import { fitViewport, MIN_SCALE } from "../../lib/viewport";
 import { HTTP_BACKEND } from "../../../config";
 
 type PublicBoard = {
@@ -11,40 +12,7 @@ type PublicBoard = {
 };
 
 const POLL_MS = 15_000;
-const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
-
-function fitViewport(shapes: Shape[], width: number, height: number): Viewport {
-  if (shapes.length === 0) return { x: width / 2, y: height / 2, scale: 1 };
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const shape of shapes) {
-    const box = convertToPoints(shape);
-    minX = Math.min(minX, box.x1);
-    minY = Math.min(minY, box.y1);
-    maxX = Math.max(maxX, box.x2);
-    maxY = Math.max(maxY, box.y2);
-  }
-  const padding = 100;
-  const scale = Math.min(
-    1.5,
-    Math.max(
-      MIN_SCALE,
-      Math.min(
-        width / Math.max(1, maxX - minX + padding * 2),
-        height / Math.max(1, maxY - minY + padding * 2),
-      ),
-    ),
-  );
-  return {
-    scale,
-    x: width / 2 - ((minX + maxX) / 2) * scale,
-    y: height / 2 - ((minY + maxY) / 2) * scale,
-  };
-}
 
 /** Read-only, unauthenticated board viewer reached through a public share link. */
 export default function PublicBoardPage() {
