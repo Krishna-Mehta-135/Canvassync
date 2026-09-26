@@ -46,6 +46,7 @@ import { TemplatesModal } from "../../components/TemplatesModal";
 import { ArrangeBar } from "../../components/ArrangeBar";
 import { PublicLinkModal } from "../../components/PublicLinkModal";
 import { MembersModal } from "../../components/MembersModal";
+import { Minimap } from "../../components/Minimap";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1182,6 +1183,7 @@ export default function CanvasPage() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showPublicLink, setShowPublicLink] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [showMinimap, setShowMinimap] = useState(true);
   const [mermaidMode, setMermaidMode] = useState<"import" | "export" | null>(null);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
@@ -3075,6 +3077,7 @@ export default function CanvasPage() {
                     ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
                     ["Public view link…", "Read-only share", () => setShowPublicLink(true)],
                     ["People & roles…", "Editor / viewer", () => setShowMembers(true)],
+                    [showMinimap ? "Hide minimap" : "Show minimap", "Overview", () => setShowMinimap((value) => !value)],
                     ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
                     ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
                     ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
@@ -4146,6 +4149,19 @@ export default function CanvasPage() {
           );
         }}
       />
+
+      {showMinimap && (
+        <Minimap
+          shapesRef={syncResult.latestShapesRef}
+          viewportRef={viewportLiveRef}
+          canvasRef={canvasRef}
+          applyViewport={(nextViewport) => {
+            skipNextViewportPersistRef.current = true;
+            controlsRef.current?.setViewport(nextViewport);
+          }}
+          isDark={isDark}
+        />
+      )}
 
       <LiveCollabLayer
         presenceState={remotePresenceState}
