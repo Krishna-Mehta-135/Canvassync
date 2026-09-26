@@ -9,6 +9,7 @@ import cors from "cors";
 import { authRouter } from "./routes/auth.routes";
 import { errorHandler } from "./middlewares/error.middleware";
 import { roomRouter } from "./routes/room.routes";
+import { publicRouter } from "./routes/public.routes";
 import { rateLimitMiddleware } from "./middlewares/rate-limit.middleware";
 import { receiveAiResult } from "./controllers/room.controller";
 
@@ -66,6 +67,7 @@ app.get("/", (_req, res) => res.sendStatus(200));
 app.get("/health", (_req, res) => res.sendStatus(200));
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/room", roomRouter);
+app.use("/api/v1/public", publicRouter);
 
 app.use(errorHandler);
 

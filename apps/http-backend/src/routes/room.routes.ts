@@ -20,12 +20,21 @@ import {
   getAiGenerateStatus,
 } from "../controllers/room.controller";
 
+import {
+  getPublicLinkStatus,
+  enablePublicLink,
+  disablePublicLink,
+} from "../controllers/public.controller";
+
 const roomRouter: Router = Router();
 
 roomRouter.post("/", authenticate, idempotencyMiddleware, createRoom);
 roomRouter.get("/mine", authenticate, listMyRooms);
 roomRouter.get("/:roomId/chat/bootstrap", authenticate, getRoomChatBootstrap);
 roomRouter.get("/:roomId/shapes", authenticate, getShapes);
+roomRouter.get("/:roomId/public", authenticate, getPublicLinkStatus);
+roomRouter.post("/:roomId/public", authenticate, enablePublicLink);
+roomRouter.delete("/:roomId/public", authenticate, disablePublicLink);
 roomRouter.get("/:roomId/history", authenticate, listRoomHistory);
 roomRouter.get(
   "/:roomId/history/:snapshotId",

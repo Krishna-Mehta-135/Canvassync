@@ -52,6 +52,8 @@ model Room {
   shapes    Shape[]
   snapshots RoomSnapshot[]
   members   RoomMember[]
+  // Unguessable token for the read-only public view link; null = link disabled.
+  publicToken String? @unique
   accessRequests RoomAccessRequest[]
 
   @@unique([adminId, slug])

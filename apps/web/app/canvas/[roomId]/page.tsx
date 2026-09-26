@@ -44,6 +44,7 @@ import { MermaidModal } from "../../components/MermaidModal";
 import { SummaryModal } from "../../components/SummaryModal";
 import { TemplatesModal } from "../../components/TemplatesModal";
 import { ArrangeBar } from "../../components/ArrangeBar";
+import { PublicLinkModal } from "../../components/PublicLinkModal";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1178,6 +1179,7 @@ export default function CanvasPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showPublicLink, setShowPublicLink] = useState(false);
   const [mermaidMode, setMermaidMode] = useState<"import" | "export" | null>(null);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
@@ -3041,11 +3043,12 @@ export default function CanvasPage() {
                   className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
                 />
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
-                  Diagram tools
+                  Canvas tools
                 </div>
                 {(
                   [
                     ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
+                    ["Public view link…", "Read-only share", () => setShowPublicLink(true)],
                     ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
                     ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
                     ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
@@ -3976,6 +3979,15 @@ export default function CanvasPage() {
           event.target.value = "";
         }}
       />
+
+      {showPublicLink && resolvedRoomId !== null && (
+        <PublicLinkModal
+          roomId={resolvedRoomId}
+          isDark={isDark}
+          onClose={() => setShowPublicLink(false)}
+          onCopied={() => pushToast("success", "Public link copied.")}
+        />
+      )}
 
       {showTemplates && (
         <TemplatesModal
