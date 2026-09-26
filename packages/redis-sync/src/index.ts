@@ -5,6 +5,7 @@ import type {
   RoomSyncState,
   RoomPresence,
   PersistedChatMessage,
+  EphemeralEvent,
 } from "@repo/common";
 import { RoomSnapshotBroadcastEventSchema } from "@repo/common/ws-protocol";
 import { REDIS_URL } from "@repo/backend-common/config";
@@ -73,6 +74,15 @@ export type RedisPresenceEvent = {
   originNodeId: string;
   connectedUsersCount: number;
   presences: RoomPresence[];
+};
+
+export type RedisEphemeralEvent = {
+  type: "ephemeral_broadcast";
+  roomId: number;
+  originNodeId: string;
+  senderId: string;
+  senderName: string;
+  event: EphemeralEvent;
 };
 
 export type RedisChatEvent = {
@@ -211,6 +221,24 @@ export async function publishPresenceEvent(
   await publisher.publish(presenceChannel(roomId), JSON.stringify(payload));
 }
 
+// Ephemeral events (cursors, reactions, viewport) share the presence channel;
+// subscribers distinguish them by `type`.
+export async function publishEphemeralEvent(
+  roomId: number,
+  event: Omit<RedisEphemeralEvent, "roomId" | "originNodeId" | "type">,
+) {
+  await ensureReady();
+
+  const payload: RedisEphemeralEvent = {
+    type: "ephemeral_broadcast",
+    roomId,
+    originNodeId: NODE_ID,
+    ...event,
+  };
+
+  await publisher.publish(presenceChannel(roomId), JSON.stringify(payload));
+}
+
 export async function publishChatEvent(
   roomId: number,
   event: Omit<RedisChatEvent, "roomId" | "originNodeId">,
@@ -327,7 +355,9 @@ export async function subscribeRoomEvents(
 }
 
 export async function subscribePresenceEvents(
-  handler: (event: RedisPresenceEvent) => void | Promise<void>,
+  handler: (
+    event: RedisPresenceEvent | RedisEphemeralEvent,
+  ) => void | Promise<void>,
 ) {
   await ensureReady();
 
@@ -340,7 +370,9 @@ export async function subscribePresenceEvents(
           return;
         }
 
-        const event = JSON.parse(message) as RedisPresenceEvent;
+        const event = JSON.parse(message) as
+          | RedisPresenceEvent
+          | RedisEphemeralEvent;
 
         if (event.originNodeId === NODE_ID) {
           return;

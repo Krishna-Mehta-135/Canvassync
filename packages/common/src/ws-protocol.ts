@@ -77,6 +77,25 @@ export type RoomPresenceMessage = RoomPresenceState & {
   type: "room_presence_state";
 };
 
+/**
+ * Short-lived, never-persisted presence events (live cursor, cursor chat,
+ * emoji reactions, viewport for follow mode). Coordinates are canvas-space.
+ */
+export type EphemeralEvent =
+  | { kind: "cursor"; x: number; y: number }
+  | { kind: "cursor_chat"; text: string | null }
+  | { kind: "reaction"; emoji: string; x: number; y: number }
+  // x/y are the canvas-space point at the centre of the sender's screen, so
+  // followers with different screen sizes land on the same content.
+  // `present` marks the sender as presenting: everyone auto-follows them.
+  | {
+      kind: "viewport";
+      x: number;
+      y: number;
+      scale: number;
+      present?: boolean;
+    };
+
 export type WsMessage =
   | { type: "join_room"; roomId: number }
   | {
@@ -123,6 +142,18 @@ export type WsMessage =
       cursor: PresenceCursor | null;
       selectedIds: string[];
       tool: string | null;
+    }
+  | {
+      type: "ephemeral";
+      roomId: number;
+      event: EphemeralEvent;
+    }
+  | {
+      type: "ephemeral_broadcast";
+      roomId: number;
+      senderId: string;
+      senderName: string;
+      event: EphemeralEvent;
     }
   | {
       type: "send_chat_message";
@@ -212,6 +243,13 @@ export type ServerMessage =
       };
     }
   | RoomPresenceMessage
+  | {
+      type: "ephemeral_broadcast";
+      roomId: number;
+      senderId: string;
+      senderName: string;
+      event: EphemeralEvent;
+    }
   | { type: "sync_error"; reason: string }
   | { type: "pong" };
 
@@ -223,6 +261,7 @@ export type ClientMessage = Extract<
       | "join_room"
       | "canvas_snapshot"
       | "update_presence"
+      | "ephemeral"
       | "send_chat_message";
   }
 >;
@@ -252,6 +291,37 @@ export const UpdatePresenceMessageSchema = z.object({
   cursor: PresenceCursorSchema.nullable(),
   selectedIds: z.array(z.string().min(1).max(200)).max(1000),
   tool: z.string().min(1).max(64).nullable(),
+});
+
+export const EphemeralEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("cursor"),
+    x: z.number().finite(),
+    y: z.number().finite(),
+  }),
+  z.object({
+    kind: z.literal("cursor_chat"),
+    text: z.string().trim().max(140).nullable(),
+  }),
+  z.object({
+    kind: z.literal("reaction"),
+    emoji: z.string().min(1).max(16),
+    x: z.number().finite(),
+    y: z.number().finite(),
+  }),
+  z.object({
+    kind: z.literal("viewport"),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    scale: z.number().finite().positive(),
+    present: z.boolean().optional(),
+  }),
+]);
+
+export const EphemeralMessageSchema = z.object({
+  type: z.literal("ephemeral"),
+  roomId: z.number().int().positive(),
+  event: EphemeralEventSchema,
 });
 
 export const SendChatMessageSchema = z
@@ -285,6 +355,7 @@ export const ClientWsMessageSchema = z.discriminatedUnion("type", [
   JoinRoomMessageSchema,
   CanvasSnapshotMessageSchema,
   UpdatePresenceMessageSchema,
+  EphemeralMessageSchema,
   SendChatMessageSchema,
 ]);
 

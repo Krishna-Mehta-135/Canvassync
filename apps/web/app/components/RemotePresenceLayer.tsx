@@ -51,6 +51,8 @@ function getColor(userId: string) {
   );
 }
 
+export { getColor as getPresenceColor };
+
 function getSelectionBounds(
   shapeById: Map<string, Shape>,
   selectedIds: string[],

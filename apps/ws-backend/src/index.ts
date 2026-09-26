@@ -200,6 +200,17 @@ void subscribeRoomEvents(async (event) => {
 });
 
 void subscribePresenceEvents(async (event) => {
+  if (event.type === "ephemeral_broadcast") {
+    broadcastToRoomAll(event.roomId, {
+      type: "ephemeral_broadcast",
+      roomId: event.roomId,
+      senderId: event.senderId,
+      senderName: event.senderName,
+      event: event.event,
+    });
+    return;
+  }
+
   applyRemotePresenceState(
     event.roomId,
     event.presences,

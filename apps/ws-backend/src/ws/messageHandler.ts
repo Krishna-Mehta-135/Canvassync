@@ -31,6 +31,7 @@ import {
   commitRoomSnapshot,
   NODE_ID,
   publishChatEvent,
+  publishEphemeralEvent,
 } from "@repo/redis-sync";
 import {
   recordInvalidJsonPayload,
@@ -53,6 +54,29 @@ const WS_SNAPSHOT_RATE_LIMIT_COUNT = Number(
 const WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS = Number(
   process.env.WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS ?? 1000,
 );
+
+// Cursor/reaction traffic is high-frequency but disposable: excess is dropped
+// silently rather than surfacing sync errors to the sender.
+const WS_EPHEMERAL_RATE_LIMIT_COUNT = Number(
+  process.env.WS_EPHEMERAL_RATE_LIMIT_COUNT ?? 60,
+);
+const WS_EPHEMERAL_RATE_LIMIT_WINDOW_MS = 1000;
+
+const ephemeralRateWindowBySocket = new WeakMap<
+  AuthenticatedWebSocket,
+  { windowStartMs: number; count: number }
+>();
+
+function isEphemeralRateLimited(ws: AuthenticatedWebSocket) {
+  const now = Date.now();
+  const window = ephemeralRateWindowBySocket.get(ws);
+  if (!window || now - window.windowStartMs >= WS_EPHEMERAL_RATE_LIMIT_WINDOW_MS) {
+    ephemeralRateWindowBySocket.set(ws, { windowStartMs: now, count: 1 });
+    return false;
+  }
+  window.count += 1;
+  return window.count > WS_EPHEMERAL_RATE_LIMIT_COUNT;
+}
 
 const snapshotRateWindowBySocket = new WeakMap<
   AuthenticatedWebSocket,
@@ -332,6 +356,35 @@ export async function handleSocketMessage(
     });
 
     broadcastRoomPresenceState(roomId);
+    return;
+  }
+
+  if (parsed.type === "ephemeral") {
+    // Must be an active member of the room; otherwise silently ignore.
+    if (!ws.userId || ws.currentRoomId !== parsed.roomId) return;
+    if (isEphemeralRateLimited(ws)) return;
+
+    const senderName = ws.userName ?? `User ${ws.userId.slice(0, 6)}`;
+
+    broadcastToRoom(
+      parsed.roomId,
+      {
+        type: "ephemeral_broadcast",
+        roomId: parsed.roomId,
+        senderId: ws.userId,
+        senderName,
+        event: parsed.event,
+      },
+      ws,
+    );
+
+    void publishEphemeralEvent(parsed.roomId, {
+      senderId: ws.userId,
+      senderName,
+      event: parsed.event,
+    }).catch(() => {
+      // Best-effort: ephemeral events are not worth retrying.
+    });
     return;
   }
 

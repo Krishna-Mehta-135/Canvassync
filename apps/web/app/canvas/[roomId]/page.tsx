@@ -24,6 +24,7 @@ import { useCanvasChat } from "../../../hooks/useCanvasChat";
 import { useCanvasSync } from "../../../hooks/useCanvasSync";
 import { useAiGeneration } from "../../../hooks/useAiGeneration";
 import { RemotePresenceLayer } from "../../components/RemotePresenceLayer";
+import { LiveCollabLayer } from "../../components/LiveCollabLayer";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -3600,6 +3601,20 @@ export default function CanvasPage() {
         currentUserId={syncResult.currentUserId}
         viewportRef={viewportLiveRef}
         shapesRef={syncResult.latestShapesRef}
+        isDark={isDark}
+      />
+
+      <LiveCollabLayer
+        presenceState={remotePresenceState}
+        currentUserId={syncResult.currentUserId}
+        viewportRef={viewportLiveRef}
+        canvasRef={canvasRef}
+        sendEphemeral={syncResult.sendEphemeral}
+        subscribeEphemeral={syncResult.subscribeEphemeral}
+        applyViewport={(nextViewport) => {
+          skipNextViewportPersistRef.current = true;
+          controlsRef.current?.setViewport(nextViewport);
+        }}
         isDark={isDark}
       />
 

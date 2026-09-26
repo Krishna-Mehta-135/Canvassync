@@ -26,6 +26,7 @@ import type {
   RoomPresenceState,
   PersistedChatMessage,
   ClientMessage,
+  EphemeralEvent,
 } from "@repo/common";
 import {
   getCanvasCrdtMetadata,
@@ -55,6 +56,12 @@ const REMOTE_HYDRATE_IDLE_GRACE_MS = Number(
 const DRAG_BURST_WINDOW_MS = 120;
 const DRAG_BURST_MIN_INTERVAL_MS = 8;
 const DRAG_BURST_MAX_IN_FLIGHT = 6;
+
+export type EphemeralBroadcast = Extract<
+  ServerMessage,
+  { type: "ephemeral_broadcast" }
+>;
+type EphemeralListener = (message: EphemeralBroadcast) => void;
 
 type PendingRemoteSnapshot = {
   roomId: number;
@@ -270,6 +277,35 @@ export function useCanvasSync({
       });
     },
     [],
+  );
+
+  const ephemeralListenersRef = useRef<Set<EphemeralListener>>(new Set());
+
+  /** Subscribes to cursor/reaction/viewport events without React re-renders. */
+  const subscribeEphemeral = useCallback((listener: EphemeralListener) => {
+    ephemeralListenersRef.current.add(listener);
+    return () => {
+      ephemeralListenersRef.current.delete(listener);
+    };
+  }, []);
+
+  const sendEphemeral = useCallback(
+    (event: EphemeralEvent) => {
+      const socket = wsRef.current;
+      if (
+        !socket ||
+        socket.readyState !== WebSocket.OPEN ||
+        !isConnectedRef.current ||
+        !hasJoinedRoomRef.current
+      ) {
+        return false;
+      }
+
+      const message: WsMessage = { type: "ephemeral", roomId, event };
+      socket.send(JSON.stringify(message));
+      return true;
+    },
+    [roomId],
   );
 
   const sendWsMessage = useCallback((message: ClientMessage) => {
@@ -794,6 +830,10 @@ export function useCanvasSync({
                 ? previous
                 : nextPresenceState;
             });
+          } else if (message.type === "ephemeral_broadcast") {
+            for (const listener of ephemeralListenersRef.current) {
+              listener(message);
+            }
           } else if (message.type === "chat_message_created") {
             appendRealtimeChatMessage(message.message);
           } else if (message.type === "sync_error") {
@@ -1004,6 +1044,8 @@ export function useCanvasSync({
     eventTimeline,
     realtimeChatMessages,
     sendWsMessage,
+    sendEphemeral,
+    subscribeEphemeral,
     manualHydrate: (shapes: Shape[]) => {
       if (!state) return;
       isApplyingRemoteRef.current = true;
