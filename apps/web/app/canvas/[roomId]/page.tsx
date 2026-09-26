@@ -10,7 +10,6 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   attachEvents,
   convertToPoints,
-  dispatch,
   getArrowHeadPoints,
   getConnectorRoutePoints,
 } from "@repo/canvas-engine";
