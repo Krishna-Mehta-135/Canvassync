@@ -4174,6 +4174,7 @@ export default function CanvasPage() {
           skipNextViewportPersistRef.current = true;
           controlsRef.current?.setViewport(nextViewport);
         }}
+        canControlTimer={!isReadOnly}
         isDark={isDark}
       />
 

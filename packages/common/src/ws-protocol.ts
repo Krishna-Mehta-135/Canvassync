@@ -85,6 +85,10 @@ export type EphemeralEvent =
   | { kind: "cursor"; x: number; y: number }
   | { kind: "cursor_chat"; text: string | null }
   | { kind: "reaction"; emoji: string; x: number; y: number }
+  // Shared countdown. `remainingMs` is time left *when sent* (so clocks needn't
+  // agree between machines); null cancels. The server remembers the deadline and
+  // replays the remaining time to late joiners.
+  | { kind: "timer"; remainingMs: number | null; label?: string }
   // x/y are the canvas-space point at the centre of the sender's screen, so
   // followers with different screen sizes land on the same content.
   // `present` marks the sender as presenting: everyone auto-follows them.
@@ -307,6 +311,11 @@ export const EphemeralEventSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("cursor_chat"),
     text: z.string().trim().max(140).nullable(),
+  }),
+  z.object({
+    kind: z.literal("timer"),
+    remainingMs: z.number().int().positive().max(60 * 60 * 1000).nullable(),
+    label: z.string().trim().max(60).optional(),
   }),
   z.object({
     kind: z.literal("reaction"),

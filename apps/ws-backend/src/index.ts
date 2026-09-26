@@ -17,6 +17,7 @@ import {
   registerUser,
   removeRoomPresence,
   removeUserSocket,
+  setRoomTimer,
 } from "./ws/connectionState.js";
 import { handleSocketMessage } from "./ws/messageHandler.js";
 import {
@@ -201,6 +202,19 @@ void subscribeRoomEvents(async (event) => {
 
 void subscribePresenceEvents(async (event) => {
   if (event.type === "ephemeral_broadcast") {
+    if (event.event.kind === "timer") {
+      setRoomTimer(
+        event.roomId,
+        event.event.remainingMs === null
+          ? null
+          : {
+              endsAt: Date.now() + event.event.remainingMs,
+              label: event.event.label,
+              senderId: event.senderId,
+              senderName: event.senderName,
+            },
+      );
+    }
     broadcastToRoomAll(event.roomId, {
       type: "ephemeral_broadcast",
       roomId: event.roomId,

@@ -17,6 +17,8 @@ import {
   broadcastToRoomAll,
   broadcastToRoomUsers,
   getRoomPresenceState,
+  getRoomTimer,
+  setRoomTimer,
   joinActiveRoom,
   setRoomPresence,
 } from "./connectionState.js";
@@ -319,6 +321,24 @@ export async function handleSocketMessage(
       } as ServerMessage),
     );
 
+    // Late joiners pick up a countdown that is already running.
+    const runningTimer = getRoomTimer(roomId);
+    if (runningTimer) {
+      ws.send(
+        JSON.stringify({
+          type: "ephemeral_broadcast",
+          roomId,
+          senderId: runningTimer.senderId,
+          senderName: runningTimer.senderName,
+          event: {
+            kind: "timer",
+            remainingMs: Math.max(1, runningTimer.endsAt - Date.now()),
+            label: runningTimer.label,
+          },
+        } as ServerMessage),
+      );
+    }
+
     broadcastRoomPresenceState(roomId);
     return;
   }
@@ -378,6 +398,23 @@ export async function handleSocketMessage(
     if (isEphemeralRateLimited(ws)) return;
 
     const senderName = ws.userName ?? `User ${ws.userId.slice(0, 6)}`;
+
+    if (parsed.event.kind === "timer") {
+      // Only people who can edit run the clock, and never past an hour.
+      if (!(await canEditRoom(ws, parsed.roomId, ws.userId))) return;
+      const { remainingMs } = parsed.event;
+      setRoomTimer(
+        parsed.roomId,
+        remainingMs === null
+          ? null
+          : {
+              endsAt: Date.now() + remainingMs,
+              label: parsed.event.label,
+              senderId: ws.userId,
+              senderName,
+            },
+      );
+    }
 
     broadcastToRoom(
       parsed.roomId,

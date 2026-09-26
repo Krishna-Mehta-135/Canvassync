@@ -29,6 +29,27 @@ export const activeRooms = new Map<number, Set<AuthenticatedWebSocket>>();
 const roomParticipants = new Map<number, Map<string, number>>();
 const roomPresences = new Map<number, Map<string, RoomPresence>>();
 
+// Active shared countdown per room (in memory; every node stores the timers it
+// sees, including ones relayed from other nodes, so late joiners get them).
+type RoomTimer = { endsAt: number; label?: string; senderId: string; senderName: string };
+const roomTimers = new Map<number, RoomTimer>();
+
+export function setRoomTimer(roomId: number, timer: RoomTimer | null) {
+  if (timer && timer.endsAt > Date.now()) roomTimers.set(roomId, timer);
+  else roomTimers.delete(roomId);
+}
+
+/** The still-running timer for a room, if any (expired ones are dropped). */
+export function getRoomTimer(roomId: number): RoomTimer | null {
+  const timer = roomTimers.get(roomId);
+  if (!timer) return null;
+  if (timer.endsAt <= Date.now()) {
+    roomTimers.delete(roomId);
+    return null;
+  }
+  return timer;
+}
+
 const pendingPresenceBroadcast = new Map<
   number,
   ReturnType<typeof setTimeout>

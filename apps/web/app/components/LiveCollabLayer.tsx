@@ -18,6 +18,8 @@ type LiveCollabLayerProps = {
   ) => () => void;
   /** Applies a viewport to the canvas (used by follow / presenter mode). */
   applyViewport: (viewport: Viewport) => void;
+  /** View-only members can watch the timer but not start or stop it. */
+  canControlTimer?: boolean;
   isDark: boolean;
 };
 
@@ -43,6 +45,40 @@ type FloatingReaction = {
 };
 
 const REACTIONS = ["👍", "❤️", "🎉", "😂", "🔥", "👀"];
+const TIMER_PRESETS_MIN = [1, 3, 5, 10];
+const TIMES_UP_VISIBLE_MS = 5000;
+
+type SharedTimer = { deadline: number; label?: string; by: string };
+
+function formatClock(ms: number) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Three short beeps; silently does nothing if audio isn't available/allowed. */
+function playTimerChime() {
+  try {
+    const AudioContextClass =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audio = new AudioContextClass();
+    [0, 0.32, 0.64].forEach((offset) => {
+      const oscillator = audio.createOscillator();
+      const gain = audio.createGain();
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, audio.currentTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.2, audio.currentTime + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + offset + 0.25);
+      oscillator.connect(gain).connect(audio.destination);
+      oscillator.start(audio.currentTime + offset);
+      oscillator.stop(audio.currentTime + offset + 0.3);
+    });
+    window.setTimeout(() => void audio.close(), 1500);
+  } catch {
+    // Autoplay policies can block audio until the user interacts; that's fine.
+  }
+}
 const CURSOR_SEND_INTERVAL_MS = 50;
 const VIEWPORT_POLL_MS = 120;
 const CURSOR_IDLE_HIDE_MS = 5000;
@@ -74,6 +110,7 @@ export function LiveCollabLayer({
   sendEphemeral,
   subscribeEphemeral,
   applyViewport,
+  canControlTimer = true,
   isDark,
 }: LiveCollabLayerProps) {
   const cursorsRef = useRef<Map<string, RemoteCursor>>(new Map());
@@ -92,6 +129,12 @@ export function LiveCollabLayer({
   const [chatPos, setChatPos] = useState({ x: 0, y: 0 });
   const chatInputRef = useRef<HTMLInputElement | null>(null);
   const chatLingerTimerRef = useRef<number | null>(null);
+
+  const [timer, setTimer] = useState<SharedTimer | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [timerMenuOpen, setTimerMenuOpen] = useState(false);
+  const [timesUpUntil, setTimesUpUntil] = useState(0);
+  const timerFiredRef = useRef(false);
 
   const [followId, setFollowId] = useState<string | null>(null);
   const followIdRef = useRef<string | null>(null);
@@ -210,6 +253,17 @@ export function LiveCollabLayer({
         window.setTimeout(() => {
           setReactions((previous) => previous.filter((r) => r.id !== id));
         }, REACTION_LIFETIME_MS);
+        return;
+      }
+
+      if (event.kind === "timer") {
+        timerFiredRef.current = false;
+        setTimer(
+          event.remainingMs === null
+            ? null
+            : { deadline: Date.now() + event.remainingMs, label: event.label, by: senderName },
+        );
+        setTimesUpUntil(0);
         return;
       }
 
@@ -467,6 +521,37 @@ export function LiveCollabLayer({
     }
   }, [presenceState.presences, setFollow]);
 
+  // Tick the countdown and chime once when it hits zero.
+  useEffect(() => {
+    if (!timer) return;
+    const interval = window.setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= timer.deadline && !timerFiredRef.current) {
+        timerFiredRef.current = true;
+        playTimerChime();
+        setTimesUpUntil(current + TIMES_UP_VISIBLE_MS);
+        window.setTimeout(() => setTimer(null), TIMES_UP_VISIBLE_MS);
+      }
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [timer]);
+
+  const startTimer = (minutes: number | null) => {
+    setTimerMenuOpen(false);
+    timerFiredRef.current = false;
+    setTimesUpUntil(0);
+    if (minutes === null) {
+      setTimer(null);
+      sendEphemeral({ kind: "timer", remainingMs: null });
+      return;
+    }
+    const remainingMs = minutes * 60_000;
+    setTimer({ deadline: Date.now() + remainingMs, by: "you" });
+    setNow(Date.now());
+    sendEphemeral({ kind: "timer", remainingMs });
+  };
+
   // Esc leaves follow mode.
   useEffect(() => {
     if (!followId) return;
@@ -579,6 +664,34 @@ export function LiveCollabLayer({
       )}
 
       <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
+        {timer && (
+          <div
+            role="timer"
+            aria-live="off"
+            className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-semibold text-white shadow-lg ${
+              timesUpUntil > now
+                ? "bg-rose-600"
+                : timer.deadline - now <= 10_000
+                  ? "animate-pulse bg-rose-500"
+                  : "bg-slate-800"
+            }`}
+          >
+            <span aria-hidden>⏱</span>
+            {timesUpUntil > now ? "Time's up!" : formatClock(timer.deadline - now)}
+            {timer.label && <span className="text-xs font-normal opacity-80">{timer.label}</span>}
+            {canControlTimer && (
+              <button
+                type="button"
+                onClick={() => startTimer(null)}
+                className="ml-1 rounded-full bg-white/15 px-2 text-xs font-normal hover:bg-white/25"
+                aria-label="Stop timer"
+              >
+                Stop
+              </button>
+            )}
+          </div>
+        )}
+
         {followId && (
           <button
             type="button"
@@ -636,6 +749,36 @@ export function LiveCollabLayer({
             </button>
           ))}
           <span className="mx-1 h-4 w-px bg-current opacity-20" />
+          {canControlTimer && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTimerMenuOpen((open) => !open)}
+                title="Start a shared countdown for everyone"
+                aria-label="Timer"
+                aria-expanded={timerMenuOpen}
+                className="rounded-full px-1.5 text-base opacity-80 hover:opacity-100"
+              >
+                ⏱
+              </button>
+              {timerMenuOpen && (
+                <div
+                  className={`absolute bottom-full left-1/2 mb-2 flex -translate-x-1/2 gap-1 rounded-xl border p-1.5 shadow-xl ${chipBase}`}
+                >
+                  {TIMER_PRESETS_MIN.map((minutes) => (
+                    <button
+                      key={minutes}
+                      type="button"
+                      onClick={() => startTimer(minutes)}
+                      className="whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-semibold hover:bg-blue-500/20"
+                    >
+                      {minutes} min
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <button
             type="button"
             onClick={togglePresenting}
