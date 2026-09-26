@@ -22,10 +22,11 @@ import { ensureAuthenticated, logoutUser } from "../../lib/auth";
 import { useTheme } from "../../components/ThemeToggle";
 import { useCanvasChat } from "../../../hooks/useCanvasChat";
 import { useCanvasSync } from "../../../hooks/useCanvasSync";
-import { useAiGeneration } from "../../../hooks/useAiGeneration";
+import { useAiGeneration, type AiResultMeta } from "../../../hooks/useAiGeneration";
 import { RemotePresenceLayer } from "../../components/RemotePresenceLayer";
 import { LiveCollabLayer } from "../../components/LiveCollabLayer";
 import { HistoryPanel } from "../../components/HistoryPanel";
+import { AiEditBar } from "../../components/AiEditBar";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1859,7 +1860,7 @@ export default function CanvasPage() {
     lastSyncError: syncResult.lastSyncError,
   });
 
-  const handleAiShapesGenerated = useCallback((shapes: unknown[]) => {
+  const handleAiShapesGenerated = useCallback((shapes: unknown[], meta?: AiResultMeta) => {
     if (!canvasState) return;
     const themed = sanitizeAiGeneratedShapes(shapes);
     if (themed.length === 0) {
@@ -1867,6 +1868,19 @@ export default function CanvasPage() {
         "error",
         "AI generated invalid geometry. Please try a more specific prompt.",
       );
+      return;
+    }
+
+    // Edit mode: swap the edited selection for the AI's rewrite in one
+    // undoable step. Everything not selected is left exactly as it was.
+    if (meta?.replaceIds) {
+      const replaced = new Set(meta.replaceIds);
+      canvasState.setShapes([
+        ...canvasState.getShapes().filter((shape) => !replaced.has(shape.id)),
+        ...themed,
+      ]);
+      controlsRef.current?.rerender();
+      pushToast("success", `✦ AI updated ${themed.length} shapes (Ctrl/Cmd+Z to undo)`);
       return;
     }
     themed.forEach((shape) => {
@@ -3632,6 +3646,30 @@ export default function CanvasPage() {
           onError={(message) => pushToast("error", message)}
         />
       )}
+
+      <AiEditBar
+        selectedCount={selectedIds.length}
+        isGenerating={ai.isGenerating}
+        isDark={isDark}
+        onSubmit={(instruction) => {
+          if (!canvasState) return;
+          const selected = new Set(selectedIds);
+          const selection = canvasState
+            .getShapes()
+            .filter((shape) => selected.has(shape.id));
+          if (selection.length === 0) return;
+          void ai.generate(
+            instruction,
+            `Edit ${selection.length} selected: ${instruction}`,
+            {
+              mode: "edit",
+              selection: selection as unknown as Array<
+                Record<string, unknown> & { id: string }
+              >,
+            },
+          );
+        }}
+      />
 
       <LiveCollabLayer
         presenceState={remotePresenceState}

@@ -56,6 +56,9 @@ const AiGenerateJobSchema = z.object({
   // Keep in sync with AiGenerateRequestSchema max length in @repo/common.
   prompt: z.string().min(1).max(12000),
   requestedBy: z.string().optional(),
+  mode: z.enum(["generate", "edit"]).optional(),
+  // Shapes to rewrite in "edit" mode (already validated by the HTTP backend).
+  selection: z.array(z.record(z.string(), z.unknown())).max(120).optional(),
   enqueuedAtMs: z.number().int().nonnegative(),
 });
 
@@ -64,6 +67,8 @@ export type AiGenerateJob = {
   roomId: number;
   prompt: string;
   requestedBy?: string;
+  mode?: "generate" | "edit";
+  selection?: Record<string, unknown>[];
   enqueuedAtMs: number;
 };
 

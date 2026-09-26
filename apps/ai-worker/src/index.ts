@@ -3,7 +3,7 @@
  *
  * Standalone Node.js process that:
  *  1. Connects to RabbitMQ and consumes AI generate jobs
- *  2. Calls the Gemini API (gemini-2.5-flash-lite) with a structured prompt
+ *  2. Calls the Gemini API (gemini-flash-latest alias) with a structured prompt
  *  3. Parses + validates the returned JSON shapes
  *  4. POSTs the result back to the HTTP backend via /internal/ai/result
  */
@@ -48,7 +48,7 @@ const MAX_GENERATION_ATTEMPTS = 3;
 const MAX_AUTOMATIC_RATE_LIMIT_WAIT_MS = 90_000;
 const MODEL_CANDIDATES = (
   process.env.GEMINI_MODEL_CANDIDATES ??
-  "gemini-2.5-flash,gemini-2.5-flash-lite"
+  "gemini-flash-latest,gemini-flash-lite-latest"
 )
   .split(",")
   .map((item) => item.trim())
@@ -105,6 +105,19 @@ JSON rules:
 - Valid JSON only, double-quoted keys/strings, no trailing commas, no comments.
 - Start with '[' and end with ']'.`;
 
+// Edit mode: rewrite an existing selection instead of drawing something new.
+const EDIT_SYSTEM_INSTRUCTION = `You are an editor for diagrams on a collaborative whiteboard.
+You receive CURRENT shapes as a JSON array and an INSTRUCTION. Return ONLY a valid, MINIFIED JSON array containing the complete new version of those shapes. No markdown, no explanation.
+
+Rules:
+- Keep the same "id" for every shape you keep or modify. Give brand-new unique ids to shapes you add. Omit a shape to delete it.
+- Preserve every property you were not asked to change (position, size, colors, text).
+- Keep the layout near the original coordinates unless the instruction asks to move, re-layout, align or tidy things.
+- Shape schemas are identical to the input: rect {x,y,width,height}, circle {centerX,centerY,radiusX,radiusY}, rhombus {x,y,width,height}, arrow/line {x1,y1,x2,y2}, text {x,y,text,fontSize,width,height}. Colors are "#hex" in "stroke" and "fill".
+- Text shapes need width > 0 (roughly chars*8) and height >= 24. New arrows must connect shape edges.
+- When asked to translate/rewrite/shorten labels, only change the "text" values.
+- Valid JSON only: double-quoted keys, no trailing commas, start with '[' and end with ']'.`;
+
 // ---------------------------------------------------------------------------
 // Build the Gemini model using getGenerativeModel
 // ---------------------------------------------------------------------------
@@ -115,15 +128,16 @@ const modelCache = new Map<
   ReturnType<typeof genAI.getGenerativeModel>
 >();
 
-function getModel(modelName: string) {
-  const cached = modelCache.get(modelName);
+function getModel(modelName: string, edit = false) {
+  const cacheKey = `${edit ? "edit" : "gen"}:${modelName}`;
+  const cached = modelCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const model = genAI.getGenerativeModel({
     model: modelName,
-    systemInstruction: SYSTEM_INSTRUCTION,
+    systemInstruction: edit ? EDIT_SYSTEM_INSTRUCTION : SYSTEM_INSTRUCTION,
     generationConfig: {
       temperature: 0.3,
       maxOutputTokens: 12288,
@@ -131,7 +145,7 @@ function getModel(modelName: string) {
     },
   });
 
-  modelCache.set(modelName, model);
+  modelCache.set(cacheKey, model);
   return model;
 }
 
@@ -472,7 +486,7 @@ async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
   let previousIssue: string | undefined;
   const existingShapes = extractCurrentCanvasShapes(prompt);
   const models =
-    MODEL_CANDIDATES.length > 0 ? MODEL_CANDIDATES : ["gemini-2.5-flash-lite"];
+    MODEL_CANDIDATES.length > 0 ? MODEL_CANDIDATES : ["gemini-flash-latest"];
 
   for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt += 1) {
     const attemptPrompt = buildAttemptPrompt(prompt, attempt, previousIssue);
@@ -580,6 +594,41 @@ async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Edit mode: rewrite the selected shapes according to the instruction.
+// ---------------------------------------------------------------------------
+async function editShapesFromPrompt(
+  instruction: string,
+  selection: unknown[],
+): Promise<unknown[]> {
+  const models =
+    MODEL_CANDIDATES.length > 0 ? MODEL_CANDIDATES : ["gemini-flash-latest"];
+  const prompt = `CURRENT shapes:\n${JSON.stringify(selection)}\n\nINSTRUCTION: ${instruction}`;
+  let lastError = "Unknown edit failure";
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (const modelName of models) {
+      try {
+        const result = await getModel(modelName, true).generateContent(prompt);
+        const rawText = result.response.text();
+        const parsed = JSON.parse(extractJsonArrayString(rawText));
+        const shapes = validateAndNormalizeShapes(parsed);
+        if (shapes.length === 0) {
+          throw new Error("The edit removed every shape");
+        }
+        return shapes;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (isRateLimitError(lastError)) {
+          lastError = summarizeQuotaError(lastError).userMessage;
+        }
+      }
+    }
+  }
+
+  throw new Error(`AI edit failed: ${lastError}`);
+}
+
+// ---------------------------------------------------------------------------
 // Post result back to HTTP backend
 // ---------------------------------------------------------------------------
 async function postResult(
@@ -609,7 +658,10 @@ async function handleAiJob(job: AiGenerateJob): Promise<void> {
   );
 
   try {
-    const shapes = await generateShapesFromPrompt(job.prompt);
+    const shapes =
+      job.mode === "edit" && job.selection && job.selection.length > 0
+        ? await editShapesFromPrompt(job.prompt, job.selection)
+        : await generateShapesFromPrompt(job.prompt);
     console.log(
       `[AI Worker] Job ${job.jobId} done — generated ${shapes.length} shapes`,
     );

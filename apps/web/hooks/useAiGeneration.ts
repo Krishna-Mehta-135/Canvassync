@@ -10,6 +10,16 @@ export interface ChatMessage {
   time: string;
 }
 
+/** Present for edit-mode results: the shapes the AI output replaces. */
+export interface AiResultMeta {
+  replaceIds?: string[];
+}
+
+export interface AiGenerateOptions {
+  mode: "edit";
+  selection: Array<Record<string, unknown> & { id: string }>;
+}
+
 interface UseAiGenerationOptions {
   roomId: number | null;
   httpBackend: string;
@@ -17,7 +27,7 @@ interface UseAiGenerationOptions {
     post: (url: string, data?: unknown) => Promise<{ data: unknown }>;
     get: (url: string) => Promise<{ data: unknown }>;
   };
-  onShapesGenerated: (shapes: unknown[]) => void;
+  onShapesGenerated: (shapes: unknown[], meta?: AiResultMeta) => void;
   onError: (message: string) => void;
 }
 
@@ -42,6 +52,7 @@ export function useAiGeneration({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editTargetsRef = useRef<Map<string, string[]>>(new Map());
 
   // Load messages from localStorage on mount
   useEffect(() => {
@@ -115,12 +126,16 @@ export function useAiGeneration({
         )?.data;
         if (d?.status === "done") {
           const shapes = d.shapes ?? [];
+          const replaceIds = editTargetsRef.current.get(jobId);
+          editTargetsRef.current.delete(jobId);
           patchMsg(aiId, {
             isGenerating: false,
             shapeCount: shapes.length,
-            text: `Done! Added ${shapes.length} shapes to your canvas.`,
+            text: replaceIds
+              ? `Done! Updated your selection (${shapes.length} shapes).`
+              : `Done! Added ${shapes.length} shapes to your canvas.`,
           });
-          onShapesGenerated(shapes);
+          onShapesGenerated(shapes, replaceIds ? { replaceIds } : undefined);
           setIsGenerating(false);
         } else if (d?.status === "error") {
           const msg = d.errorMessage ?? "Generation failed";
@@ -141,7 +156,11 @@ export function useAiGeneration({
     }, POLL_INTERVAL_MS);
   }, [apiClient, httpBackend, onError, onShapesGenerated, patchMsg, roomId]);
 
-  const generate = useCallback(async (prompt: string, displayText?: string) => {
+  const generate = useCallback(async (
+    prompt: string,
+    displayText?: string,
+    options?: AiGenerateOptions,
+  ) => {
     if (!prompt.trim() || !roomId || isGenerating) return;
 
     const aid = `ai-${Date.now() + 1}`;
@@ -154,7 +173,7 @@ export function useAiGeneration({
     addMsg({
       id: aid,
       role: "ai",
-      text: "Generating…",
+      text: options ? "Editing…" : "Generating…",
       isGenerating: true,
       time: nowTime(),
     });
@@ -163,10 +182,18 @@ export function useAiGeneration({
     try {
       const res = await apiClient.post(
         `${httpBackend}/room/${roomId}/ai/generate`,
-        { prompt },
+        options
+          ? { prompt, mode: "edit", selection: options.selection }
+          : { prompt },
       );
       const jobId = (res.data as { data?: { jobId?: string } })?.data?.jobId;
       if (!jobId) throw new Error("No job ID");
+      if (options) {
+        editTargetsRef.current.set(
+          jobId,
+          options.selection.map((shape) => shape.id),
+        );
+      }
       poll(jobId, aid);
     } catch (error) {
       const maybeAxiosError = error as {

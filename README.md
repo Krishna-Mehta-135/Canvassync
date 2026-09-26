@@ -271,7 +271,7 @@ HTTP_BACKEND_INTERNAL_URL=http://127.0.0.1:3001
 
 # AI provider
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL_CANDIDATES=gemini-2.5-flash,gemini-2.5-flash-lite
+GEMINI_MODEL_CANDIDATES=gemini-flash-latest,gemini-flash-lite-latest
 
 # Web app URL for email flows
 WEB_APP_URL=http://localhost:3000

@@ -1221,10 +1221,13 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
 
   const bodyValidation = AiGenerateRequestSchema.safeParse(req.body);
   if (!bodyValidation.success) {
-    throw new ApiError(400, "Invalid prompt — must be 1–12000 characters");
+    throw new ApiError(
+      400,
+      "Invalid request — prompt must be 1–12000 characters; edit mode needs a selection",
+    );
   }
 
-  const { prompt } = bodyValidation.data;
+  const { prompt, mode, selection } = bodyValidation.data;
   const jobId = randomUUID();
 
   const initialEntry: AiJobEntry = {
@@ -1245,6 +1248,8 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
       jobId,
       roomId,
       prompt,
+      mode,
+      selection: selection as Record<string, unknown>[] | undefined,
       requestedBy: userId,
       enqueuedAtMs: Date.now(),
     });
