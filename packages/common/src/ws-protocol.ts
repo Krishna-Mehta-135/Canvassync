@@ -89,6 +89,11 @@ export type EphemeralEvent =
   // agree between machines); null cancels. The server remembers the deadline and
   // replays the remaining time to late joiners.
   | { kind: "timer"; remainingMs: number | null; label?: string }
+  // Voice chat presence (who is in the call). The server tracks it and replays
+  // it to late joiners; audio itself is peer-to-peer WebRTC.
+  | { kind: "voice"; on: boolean }
+  // WebRTC signaling (offer/answer/ICE as a JSON string) delivered only to `to`.
+  | { kind: "rtc"; to: string; data: string }
   // x/y are the canvas-space point at the centre of the sender's screen, so
   // followers with different screen sizes land on the same content.
   // `present` marks the sender as presenting: everyone auto-follows them.
@@ -311,6 +316,12 @@ export const EphemeralEventSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("cursor_chat"),
     text: z.string().trim().max(140).nullable(),
+  }),
+  z.object({ kind: z.literal("voice"), on: z.boolean() }),
+  z.object({
+    kind: z.literal("rtc"),
+    to: z.string().min(1).max(200),
+    data: z.string().min(2).max(12_000),
   }),
   z.object({
     kind: z.literal("timer"),

@@ -18,7 +18,9 @@ import {
   broadcastToRoomUsers,
   getRoomPresenceState,
   getRoomTimer,
+  getVoiceParticipants,
   setRoomTimer,
+  setVoiceParticipant,
   joinActiveRoom,
   setRoomPresence,
 } from "./connectionState.js";
@@ -339,6 +341,19 @@ export async function handleSocketMessage(
       );
     }
 
+    for (const participant of getVoiceParticipants(roomId)) {
+      if (participant.userId === userId) continue;
+      ws.send(
+        JSON.stringify({
+          type: "ephemeral_broadcast",
+          roomId,
+          senderId: participant.userId,
+          senderName: participant.userName,
+          event: { kind: "voice", on: true },
+        } as ServerMessage),
+      );
+    }
+
     broadcastRoomPresenceState(roomId);
     return;
   }
@@ -416,17 +431,36 @@ export async function handleSocketMessage(
       );
     }
 
-    broadcastToRoom(
-      parsed.roomId,
-      {
-        type: "ephemeral_broadcast",
-        roomId: parsed.roomId,
-        senderId: ws.userId,
-        senderName,
-        event: parsed.event,
-      },
-      ws,
-    );
+    if (parsed.event.kind === "voice") {
+      setVoiceParticipant(parsed.roomId, ws.userId, senderName, parsed.event.on);
+    }
+
+    // WebRTC signaling goes only to its addressee (never the whole room).
+    if (parsed.event.kind === "rtc") {
+      broadcastToRoomUsers(
+        parsed.roomId,
+        {
+          type: "ephemeral_broadcast",
+          roomId: parsed.roomId,
+          senderId: ws.userId,
+          senderName,
+          event: parsed.event,
+        },
+        [parsed.event.to],
+      );
+    } else {
+      broadcastToRoom(
+        parsed.roomId,
+        {
+          type: "ephemeral_broadcast",
+          roomId: parsed.roomId,
+          senderId: ws.userId,
+          senderName,
+          event: parsed.event,
+        },
+        ws,
+      );
+    }
 
     void publishEphemeralEvent(parsed.roomId, {
       senderId: ws.userId,

@@ -50,6 +50,31 @@ export function getRoomTimer(roomId: number): RoomTimer | null {
   return timer;
 }
 
+// Who is in each room's voice call (in memory, mirrored across nodes via the
+// ephemeral channel) so late joiners can see and join it.
+const roomVoice = new Map<number, Map<string, string>>();
+
+export function setVoiceParticipant(
+  roomId: number,
+  userId: string,
+  userName: string,
+  on: boolean,
+) {
+  if (on) {
+    if (!roomVoice.has(roomId)) roomVoice.set(roomId, new Map());
+    roomVoice.get(roomId)!.set(userId, userName);
+  } else {
+    roomVoice.get(roomId)?.delete(userId);
+    if (roomVoice.get(roomId)?.size === 0) roomVoice.delete(roomId);
+  }
+}
+
+export function getVoiceParticipants(roomId: number) {
+  return [...(roomVoice.get(roomId) ?? new Map<string, string>())].map(
+    ([userId, userName]) => ({ userId, userName }),
+  );
+}
+
 const pendingPresenceBroadcast = new Map<
   number,
   ReturnType<typeof setTimeout>

@@ -17,7 +17,9 @@ import {
   registerUser,
   removeRoomPresence,
   removeUserSocket,
+  getVoiceParticipants,
   setRoomTimer,
+  setVoiceParticipant,
 } from "./ws/connectionState.js";
 import { handleSocketMessage } from "./ws/messageHandler.js";
 import {
@@ -28,6 +30,7 @@ import {
 } from "./ws/roomSync.js";
 import {
   NODE_ID,
+  publishEphemeralEvent,
   subscribeChatEvents,
   subscribePresenceEvents,
   subscribeRoomEvents,
@@ -215,13 +218,27 @@ void subscribePresenceEvents(async (event) => {
             },
       );
     }
-    broadcastToRoomAll(event.roomId, {
-      type: "ephemeral_broadcast",
+    if (event.event.kind === "voice") {
+      setVoiceParticipant(
+        event.roomId,
+        event.senderId,
+        event.senderName,
+        event.event.on,
+      );
+    }
+    const relayed = {
+      type: "ephemeral_broadcast" as const,
       roomId: event.roomId,
       senderId: event.senderId,
       senderName: event.senderName,
       event: event.event,
-    });
+    };
+    if (event.event.kind === "rtc") {
+      // Only the addressee (if connected to this node) receives signaling.
+      broadcastToRoomUsers(event.roomId, relayed, [event.event.to]);
+    } else {
+      broadcastToRoomAll(event.roomId, relayed);
+    }
     return;
   }
 
@@ -389,6 +406,28 @@ wss.on("connection", function connection(ws: AuthenticatedWebSocket, request) {
       if (didUserFullyLeave && ws.userId) {
         removeRoomPresence(roomId, ws.userId);
         broadcastRoomPresenceState(roomId);
+
+        // Dropped connections must not leave a ghost in the voice call.
+        const name = ws.userName ?? `User ${ws.userId.slice(0, 6)}`;
+        const leavingUserId = ws.userId;
+        const wasInVoice = getVoiceParticipants(roomId).some(
+          (participant) => participant.userId === leavingUserId,
+        );
+        if (!wasInVoice) return;
+        setVoiceParticipant(roomId, ws.userId, name, false);
+        const left = {
+          type: "ephemeral_broadcast" as const,
+          roomId,
+          senderId: ws.userId,
+          senderName: name,
+          event: { kind: "voice" as const, on: false },
+        };
+        broadcastToRoomAll(roomId, left);
+        void publishEphemeralEvent(roomId, {
+          senderId: ws.userId,
+          senderName: name,
+          event: left.event,
+        }).catch(() => undefined);
       }
     }
   });

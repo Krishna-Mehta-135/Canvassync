@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EphemeralEvent, RoomPresenceState } from "@repo/common";
 import type { EphemeralBroadcast } from "../../hooks/useCanvasSync";
 import { getPresenceColor } from "./RemotePresenceLayer";
+import { useVoiceChat } from "../../hooks/useVoiceChat";
 
 type Viewport = { x: number; y: number; scale: number };
 
@@ -129,6 +130,8 @@ export function LiveCollabLayer({
   const [chatPos, setChatPos] = useState({ x: 0, y: 0 });
   const chatInputRef = useRef<HTMLInputElement | null>(null);
   const chatLingerTimerRef = useRef<number | null>(null);
+
+  const voice = useVoiceChat({ currentUserId, sendEphemeral, subscribeEphemeral });
 
   const [timer, setTimer] = useState<SharedTimer | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -266,6 +269,9 @@ export function LiveCollabLayer({
         setTimesUpUntil(0);
         return;
       }
+
+      // Voice presence and WebRTC signaling are handled by useVoiceChat.
+      if (event.kind === "voice" || event.kind === "rtc") return;
 
       // Viewport (follow / presenter mode).
       if (event.present === false) {
@@ -664,6 +670,12 @@ export function LiveCollabLayer({
       )}
 
       <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
+        {voice.error && (
+          <div className="max-w-xs rounded-lg bg-rose-600 px-3 py-1.5 text-center text-xs font-medium text-white shadow-lg">
+            {voice.error}
+          </div>
+        )}
+
         {timer && (
           <div
             role="timer"
@@ -707,6 +719,8 @@ export function LiveCollabLayer({
           <div className="flex max-w-[70vw] flex-wrap justify-center gap-1.5">
             {remoteUsers.map((user) => {
               const active = followId === user.userId;
+              const inVoice = voice.participants.has(user.userId);
+              const isSpeaking = voice.speaking.has(user.userId);
               return (
                 <button
                   key={user.userId}
@@ -720,13 +734,20 @@ export function LiveCollabLayer({
                     dismissedPresenterRef.current = null;
                     setFollow(user.userId);
                   }}
-                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow ${chipBase}`}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow transition ${chipBase} ${
+                    isSpeaking ? "ring-2 ring-emerald-400" : ""
+                  }`}
                 >
                   <span
                     className="inline-block h-2 w-2 rounded-full"
                     style={{ background: getPresenceColor(user.userId) }}
                   />
                   {user.userName}
+                  {inVoice && (
+                    <span aria-label="In voice chat" title="In voice chat">
+                      🎙
+                    </span>
+                  )}
                   {active && <span aria-hidden>👁</span>}
                 </button>
               );
@@ -749,6 +770,51 @@ export function LiveCollabLayer({
             </button>
           ))}
           <span className="mx-1 h-4 w-px bg-current opacity-20" />
+          {voice.joined ? (
+            <>
+              <button
+                type="button"
+                onClick={voice.toggleMute}
+                title={voice.muted ? "Unmute" : "Mute"}
+                aria-label={voice.muted ? "Unmute microphone" : "Mute microphone"}
+                aria-pressed={voice.muted}
+                className={`rounded-full px-1.5 text-base ${
+                  voice.speaking.has(currentUserId ?? "") && !voice.muted
+                    ? "ring-2 ring-emerald-400"
+                    : ""
+                }`}
+              >
+                {voice.muted ? "🔇" : "🎙"}
+              </button>
+              <button
+                type="button"
+                onClick={voice.leave}
+                title="Leave voice chat"
+                className="rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-semibold text-white"
+              >
+                Leave
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void voice.join()}
+              title={
+                voice.participants.size > 0
+                  ? `Join voice chat (${voice.participants.size} in call)`
+                  : "Start a voice chat — peer-to-peer, never recorded"
+              }
+              aria-label="Join voice chat"
+              className="relative rounded-full px-1.5 text-base opacity-80 hover:opacity-100"
+            >
+              🎧
+              {voice.participants.size > 0 && (
+                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-emerald-500 px-1 text-[9px] font-bold text-white">
+                  {voice.participants.size}
+                </span>
+              )}
+            </button>
+          )}
           {canControlTimer && (
             <div className="relative">
               <button
