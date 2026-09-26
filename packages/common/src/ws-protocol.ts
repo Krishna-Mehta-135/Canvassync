@@ -96,11 +96,15 @@ export type EphemeralEvent =
       present?: boolean;
     };
 
+/** What the connected user may do in a room. VIEWERs cannot change the canvas. */
+export type RoomRole = "OWNER" | "EDITOR" | "VIEWER";
+
 export type WsMessage =
   | { type: "join_room"; roomId: number }
   | {
       type: "room_joined";
       roomId: number;
+      role?: RoomRole;
       version: number;
       shapes: Shape[];
       userId: string;
@@ -195,6 +199,7 @@ export type ServerMessage =
   | {
       type: "room_joined";
       roomId: number;
+      role?: RoomRole;
       version: number;
       shapes: Shape[];
       userId: string;

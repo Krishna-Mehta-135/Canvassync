@@ -118,27 +118,37 @@ function isSnapshotRateLimited(ws: AuthenticatedWebSocket) {
   return existing.count > WS_SNAPSHOT_RATE_LIMIT_COUNT;
 }
 
-async function hasRoomAccess(roomId: number, userId: string) {
-  const room = await prismaClient.room.findFirst({
-    where: {
-      id: roomId,
-      OR: [
-        { adminId: userId },
-        {
-          members: {
-            some: {
-              userId,
-            },
-          },
-        },
-      ],
-    },
+type RoomRole = "OWNER" | "EDITOR" | "VIEWER";
+
+/** Resolves the user's role in a room, or null when they have no access. */
+async function getRoomRole(roomId: number, userId: string): Promise<RoomRole | null> {
+  const room = await prismaClient.room.findUnique({
+    where: { id: roomId },
     select: {
-      id: true,
+      adminId: true,
+      members: { where: { userId }, select: { role: true } },
     },
   });
+  if (!room) return null;
+  if (room.adminId === userId) return "OWNER";
+  const member = room.members[0];
+  return member ? member.role : null;
+}
 
-  return Boolean(room);
+async function hasRoomAccess(roomId: number, userId: string) {
+  return (await getRoomRole(roomId, userId)) !== null;
+}
+
+const ROLE_RECHECK_MS = 10_000;
+
+/** Whether the socket's user may currently edit; re-reads the DB when the cached role is stale. */
+async function canEditRoom(ws: AuthenticatedWebSocket, roomId: number, userId: string) {
+  const now = Date.now();
+  if (!ws.role || !ws.roleCheckedAtMs || now - ws.roleCheckedAtMs > ROLE_RECHECK_MS) {
+    ws.role = (await getRoomRole(roomId, userId)) ?? undefined;
+    ws.roleCheckedAtMs = now;
+  }
+  return ws.role === "OWNER" || ws.role === "EDITOR";
 }
 
 function rejectForbidden(ws: AuthenticatedWebSocket) {
@@ -261,11 +271,13 @@ export async function handleSocketMessage(
       return;
     }
 
-    const hasAccess = await hasRoomAccess(roomId, userId);
-    if (!hasAccess) {
+    const role = await getRoomRole(roomId, userId);
+    if (!role) {
       rejectForbidden(ws);
       return;
     }
+    ws.role = role;
+    ws.roleCheckedAtMs = Date.now();
 
     let roomState;
     try {
@@ -298,6 +310,7 @@ export async function handleSocketMessage(
       JSON.stringify({
         type: "room_joined",
         roomId,
+        role,
         version: roomState.version,
         shapes: roomState.shapes,
         userId,
@@ -419,6 +432,16 @@ export async function handleSocketMessage(
         JSON.stringify({
           type: "sync_error",
           reason: "Forbidden",
+        } as ServerMessage),
+      );
+      return;
+    }
+
+    if (!(await canEditRoom(ws, roomId, userId))) {
+      ws.send(
+        JSON.stringify({
+          type: "sync_error",
+          reason: "Read-only: you have view-only access to this room",
         } as ServerMessage),
       );
       return;

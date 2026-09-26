@@ -139,6 +139,18 @@ export class CanvasState {
    */
   private listeners = new Set<(shapes: Shape[]) => void>();
 
+  // Read-only states ignore local edits (setShapes/undo/redo); hydrateShapes
+  // still applies remote updates.
+  private readOnly = false;
+
+  setReadOnly(value: boolean) {
+    this.readOnly = value;
+  }
+
+  isReadOnly() {
+    return this.readOnly;
+  }
+
   private notifyChange() {
     for (const listener of this.listeners) {
       listener([...this.present]);
@@ -156,6 +168,7 @@ export class CanvasState {
    * - clear future (redo invalidated)
    */
   setShapes(newShapes: Shape[]) {
+    if (this.readOnly) return;
     this.past.push(this.present);
     this.present = normalizeShapes(newShapes);
     this.future = [];
@@ -177,7 +190,7 @@ export class CanvasState {
    * move one step back in history
    */
   undo() {
-    if (this.past.length === 0) return;
+    if (this.readOnly || this.past.length === 0) return;
 
     const prev = this.past.pop()!;
     this.future.push(this.present);
@@ -190,7 +203,7 @@ export class CanvasState {
    * move one step forward
    */
   redo() {
-    if (this.future.length === 0) return;
+    if (this.readOnly || this.future.length === 0) return;
 
     const next = this.future.pop()!;
     this.past.push(this.present);

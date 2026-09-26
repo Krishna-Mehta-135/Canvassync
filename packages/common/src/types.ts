@@ -78,10 +78,23 @@ export const RoomAccessRequestCreateSchema = z.object({
   note: z.string().trim().max(500).optional(),
 });
 
+export const RoomMemberRoleSchema = z.enum(["EDITOR", "VIEWER"]);
+
 export const RoomAccessRequestDecisionSchema = z.object({
   requestId: z.coerce.number().int().positive(),
   action: z.enum(["approve", "reject"]),
   note: z.string().trim().max(500).optional(),
+  // Role granted on approval; defaults to EDITOR.
+  role: RoomMemberRoleSchema.optional(),
+});
+
+export const RoomMemberParamsSchema = z.object({
+  roomId: z.coerce.number().int().positive(),
+  userId: z.string().min(1).max(200),
+});
+
+export const RoomMemberRoleUpdateSchema = z.object({
+  role: RoomMemberRoleSchema,
 });
 
 // AI canvas generation

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CanvasState } from "../state";
 import type { Shape } from "../types";
 import { alignShapes, distributeShapes } from "./arrange";
 
@@ -77,5 +78,25 @@ describe("distributeShapes", () => {
 
   it("needs three shapes", () => {
     expect(distributeShapes([rect("a", 0, 0), rect("b", 300, 0)], ids("a", "b"), "horizontal")).toBeNull();
+  });
+});
+
+describe("CanvasState read-only", () => {
+  it("ignores local edits but still hydrates remote updates", () => {
+    const state = new CanvasState();
+    state.setShapes([rect("a", 0, 0)]);
+    state.setReadOnly(true);
+
+    state.setShapes([rect("a", 0, 0), rect("b", 10, 10)]);
+    expect(state.getShapes()).toHaveLength(1);
+    state.undo();
+    expect(state.getShapes()).toHaveLength(1);
+
+    state.hydrateShapes([rect("x", 0, 0), rect("y", 5, 5)]);
+    expect(state.getShapes()).toHaveLength(2);
+
+    state.setReadOnly(false);
+    state.setShapes([rect("z", 0, 0)]);
+    expect(state.getShapes()).toHaveLength(1);
   });
 });

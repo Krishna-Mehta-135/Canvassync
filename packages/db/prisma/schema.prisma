@@ -65,10 +65,17 @@ enum ChatMessageType {
   COMMENT
 }
 
+enum RoomMemberRole {
+  EDITOR
+  VIEWER
+}
+
 model RoomMember {
   id        Int      @id @default(autoincrement())
   roomId    Int
   userId    String
+  // VIEWER: can look, follow and chat, but cannot change the canvas.
+  role      RoomMemberRole @default(EDITOR)
   createdAt DateTime @default(now())
   room      Room     @relation(fields: [roomId], references: [id])
   user      User     @relation(fields: [userId], references: [id])

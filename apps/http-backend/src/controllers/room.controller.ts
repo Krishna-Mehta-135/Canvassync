@@ -6,6 +6,8 @@ import {
   RenameRoomSlugSchema,
   RoomIdParamSchema,
   RoomHistorySnapshotParamsSchema,
+  RoomMemberParamsSchema,
+  RoomMemberRoleUpdateSchema,
   RoomSlugParamSchema,
   OwnerSlugParamsSchema,
   ReplaceShapesBodySchema,
@@ -104,6 +106,21 @@ async function assertOwnerRoomAccess(roomId: number, userId: string) {
   }
 
   return room;
+}
+
+/** Owner or an EDITOR member (VIEWERs can read but not change the canvas). */
+async function canEditRoom(roomId: number, userId: string) {
+  const room = await prismaClient.room.findFirst({
+    where: {
+      id: roomId,
+      OR: [
+        { adminId: userId },
+        { members: { some: { userId, role: "EDITOR" } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(room);
 }
 
 async function hasRoomAccess(roomId: number, userId: string) {
@@ -691,7 +708,9 @@ const replaceShapes = asyncHandler(async (req, res) => {
   const { roomId } = paramsValidation.data;
 
   const userId = requireUserId(req.userId);
-  await assertOwnerRoomAccess(roomId, userId);
+  if (!(await canEditRoom(roomId, userId))) {
+    throw new ApiError(403, "Forbidden");
+  }
 
   const bodyValidation = ReplaceShapesBodySchema.safeParse(req.body);
   if (!bodyValidation.success) {
@@ -1112,7 +1131,7 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
   }
 
   const ownerId = requireUserId(req.userId);
-  const { requestId, action, note } = validationResult.data;
+  const { requestId, action, note, role } = validationResult.data;
 
   const accessRequest = await prismaClient.roomAccessRequest.findUnique({
     where: {
@@ -1166,8 +1185,9 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
         create: {
           roomId: accessRequest.room.id,
           userId: accessRequest.requesterId,
+          role: role ?? "EDITOR",
         },
-        update: {},
+        update: role ? { role } : {},
       });
     }
   });
@@ -1182,6 +1202,78 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
       `Access request ${action}d`,
     ),
   );
+});
+
+// GET /room/:roomId/members — owner: people with access and their roles.
+const listRoomMembers = asyncHandler(async (req, res) => {
+  const params = RoomIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new ApiError(400, "Invalid roomId");
+
+  const { roomId } = params.data;
+  await assertOwnerRoomAccess(roomId, requireUserId(req.userId));
+
+  const members = await prismaClient.roomMember.findMany({
+    where: { roomId },
+    orderBy: { createdAt: "asc" },
+    select: {
+      role: true,
+      user: { select: { id: true, name: true, handle: true } },
+    },
+  });
+
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        members: members.map((member) => ({
+          userId: member.user.id,
+          name: member.user.name,
+          handle: member.user.handle,
+          role: member.role,
+        })),
+      },
+      "Room members fetched",
+    ),
+  );
+});
+
+// PATCH /room/:roomId/members/:userId — owner: change a member's role.
+const updateRoomMemberRole = asyncHandler(async (req, res) => {
+  const params = RoomMemberParamsSchema.safeParse(req.params);
+  const body = RoomMemberRoleUpdateSchema.safeParse(req.body);
+  if (!params.success || !body.success) throw new ApiError(400, "Invalid request");
+
+  const { roomId, userId: memberId } = params.data;
+  await assertOwnerRoomAccess(roomId, requireUserId(req.userId));
+
+  const result = await prismaClient.roomMember.updateMany({
+    where: { roomId, userId: memberId },
+    data: { role: body.data.role },
+  });
+  if (result.count === 0) throw new ApiError(404, "Member not found");
+
+  res
+    .status(200)
+    .json(new ApiResponse(200, { userId: memberId, role: body.data.role }, "Role updated"));
+});
+
+// DELETE /room/:roomId/members/:userId — owner: remove someone's access.
+const removeRoomMember = asyncHandler(async (req, res) => {
+  const params = RoomMemberParamsSchema.safeParse(req.params);
+  if (!params.success) throw new ApiError(400, "Invalid request");
+
+  const { roomId, userId: memberId } = params.data;
+  await assertOwnerRoomAccess(roomId, requireUserId(req.userId));
+
+  await prismaClient.$transaction([
+    prismaClient.roomMember.deleteMany({ where: { roomId, userId: memberId } }),
+    // Let them request access again later instead of being stuck "approved".
+    prismaClient.roomAccessRequest.deleteMany({
+      where: { roomId, requesterId: memberId },
+    }),
+  ]);
+
+  res.status(200).json(new ApiResponse(200, { userId: memberId }, "Member removed"));
 });
 
 // ---------------------------------------------------------------------------
@@ -1385,6 +1477,9 @@ export {
   getShapes,
   listRoomHistory,
   getRoomHistorySnapshot,
+  listRoomMembers,
+  updateRoomMemberRole,
+  removeRoomMember,
   getRoomChatBootstrap,
   replaceShapes,
   getRoomIdFromSlug,

@@ -18,6 +18,8 @@ type HistoryPanelProps = {
   onError: (message: string) => void;
   /** Base name for exported files (no extension). */
   fileName: string;
+  /** View-only members can browse history but not restore it. */
+  readOnly?: boolean;
 };
 
 const PLAY_INTERVAL_MS = 900;
@@ -48,6 +50,7 @@ export function HistoryPanel({
   onRestored,
   onError,
   fileName,
+  readOnly = false,
 }: HistoryPanelProps) {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   // Index into `entries` (oldest → newest); entries.length means "live".
@@ -384,7 +387,8 @@ export function HistoryPanel({
               <button
                 type="button"
                 onClick={handleRestore}
-                disabled={!selected || !previewShapes}
+                disabled={readOnly || !selected || !previewShapes}
+                title={readOnly ? "View-only access" : undefined}
                 className="ml-auto rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
               >
                 Restore this version

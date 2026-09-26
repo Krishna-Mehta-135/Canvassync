@@ -27,6 +27,7 @@ import type {
   PersistedChatMessage,
   ClientMessage,
   EphemeralEvent,
+  RoomRole,
 } from "@repo/common";
 import {
   getCanvasCrdtMetadata,
@@ -159,6 +160,7 @@ export function useCanvasSync({
     presences: [],
   });
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<RoomRole | null>(null);
   const [websocketLatencyMs, setWebsocketLatencyMs] = useState<number | null>(
     null,
   );
@@ -698,6 +700,7 @@ export function useCanvasSync({
           const message = JSON.parse(event.data) as ServerMessage;
 
           if (message.type === "room_joined") {
+            setMyRole(message.role ?? null);
             if (WS_SYNC_DEBUG) {
               console.log(
                 "[WS] Joined room, version:",
@@ -1039,6 +1042,7 @@ export function useCanvasSync({
     presenceState,
     connectedUsersCount: presenceState.connectedUsersCount,
     currentUserId,
+    myRole,
     websocketLatencyMs,
     inFlightSnapshotCount,
     eventTimeline,

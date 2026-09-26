@@ -167,6 +167,7 @@ export default function RoomsPage() {
   const handleRequestDecision = async (
     requestId: number,
     action: "approve" | "reject",
+    role?: "EDITOR" | "VIEWER",
   ) => {
     setRequestActionInFlightId(requestId);
     setError(null);
@@ -175,6 +176,7 @@ export default function RoomsPage() {
       await apiClient.post(`${HTTP_BACKEND}/room/access/requests/decision`, {
         requestId,
         action,
+        ...(role ? { role } : {}),
       });
 
       setIncomingRequests((current) =>
@@ -409,6 +411,17 @@ export default function RoomsPage() {
                         className={`rounded-lg px-3 py-1.5 text-xs font-bold transition hover:scale-105 active:scale-95 ${isDark ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}
                       >
                         Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={requestActionInFlightId === request.id}
+                        onClick={() =>
+                          void handleRequestDecision(request.id, "approve", "VIEWER")
+                        }
+                        title="Can look, follow and chat — but not edit"
+                        className={`rounded-lg px-3 py-1.5 text-xs font-bold transition hover:scale-105 active:scale-95 ${isDark ? "bg-sky-500/20 text-sky-300 hover:bg-sky-500/30" : "bg-sky-50 text-sky-700 hover:bg-sky-100"}`}
+                      >
+                        View only
                       </button>
                       <button
                         type="button"

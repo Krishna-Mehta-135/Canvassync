@@ -45,6 +45,7 @@ import { SummaryModal } from "../../components/SummaryModal";
 import { TemplatesModal } from "../../components/TemplatesModal";
 import { ArrangeBar } from "../../components/ArrangeBar";
 import { PublicLinkModal } from "../../components/PublicLinkModal";
+import { MembersModal } from "../../components/MembersModal";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1180,6 +1181,7 @@ export default function CanvasPage() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showPublicLink, setShowPublicLink] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const [mermaidMode, setMermaidMode] = useState<"import" | "export" | null>(null);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
@@ -1904,6 +1906,17 @@ export default function CanvasPage() {
     localTool: activeTool,
   });
 
+  // VIEWERs can look, follow and chat; CanvasState ignores their local edits.
+  const isReadOnly = syncResult.myRole === "VIEWER";
+  useEffect(() => {
+    canvasState?.setReadOnly(isReadOnly);
+  }, [canvasState, isReadOnly]);
+  const denyIfReadOnly = () => {
+    if (!isReadOnly) return false;
+    pushToast("error", "View-only access — ask the owner for edit rights.");
+    return true;
+  };
+
   const chat = useCanvasChat({
     roomId: resolvedRoomId,
     enabled: resolvedRoomId !== null,
@@ -1916,6 +1929,10 @@ export default function CanvasPage() {
 
   const handleAiShapesGenerated = useCallback((shapes: unknown[], meta?: AiResultMeta) => {
     if (!canvasState) return;
+    if (isReadOnly) {
+      pushToast("error", "View-only access — the AI result wasn't applied.");
+      return;
+    }
     const themed = sanitizeAiGeneratedShapes(shapes);
     if (themed.length === 0) {
       pushToast(
@@ -1974,7 +1991,7 @@ export default function CanvasPage() {
         ? `✦ AI added ${themed.length} shapes (${droppedCount} invalid skipped)`
         : `✦ AI added ${themed.length} shapes to your canvas`,
     );
-  }, [canvasState, pushToast]);
+  }, [canvasState, isReadOnly, pushToast]);
 
   const handleAiError = useCallback((message: string) => {
     pushToast("error", message);
@@ -2006,6 +2023,7 @@ export default function CanvasPage() {
     compute: (shapes: Shape[], ids: ReadonlySet<string>) => Shape[] | null,
   ) => {
     if (!canvasState) return;
+    if (denyIfReadOnly()) return;
     const next = compute(canvasState.getShapes(), new Set(selectedIds));
     if (!next) return; // nothing to move (already arranged)
     canvasState.setShapes(next);
@@ -2018,6 +2036,7 @@ export default function CanvasPage() {
 
   const handleInsertTemplate = (id: TemplateId) => {
     if (!canvasState) return;
+    if (denyIfReadOnly()) return;
     let shapes = buildTemplate(id, getViewCenter());
     // Don't land on top of existing content: slide right of it if they overlap.
     const existingBounds = getBoundsForShapes(canvasState.getShapes());
@@ -2053,6 +2072,7 @@ export default function CanvasPage() {
 
   const handleImageChosen = async (file: File | undefined) => {
     if (!file || !canvasState || ai.isGenerating) return;
+    if (denyIfReadOnly()) return;
     if (!file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) {
       pushToast("error", "Choose an image file under 15 MB.");
       return;
@@ -2094,6 +2114,7 @@ export default function CanvasPage() {
 
   const handleInsertSummary = (markdown: string) => {
     if (!canvasState) return;
+    if (denyIfReadOnly()) return;
     // Park the note to the right of everything already on the board.
     const existing = canvasState.getShapes();
     const bounds = getBoundsForShapes(existing);
@@ -2415,6 +2436,7 @@ export default function CanvasPage() {
 
   const handleMermaidImport = (source: string): string | null => {
     if (!canvasState) return "Canvas is not ready yet.";
+    if (isReadOnly) return "View-only access — ask the owner for edit rights.";
     const viewport = viewportLiveRef.current;
     const canvas = canvasRef.current;
     const center =
@@ -2469,6 +2491,7 @@ export default function CanvasPage() {
 
   const handleTidyLayout = (direction: "TD" | "LR") => {
     if (!canvasState) return;
+    if (denyIfReadOnly()) return;
     const scope = getSelectionScope() ?? canvasState.getShapes();
     const tidied = tidyLayout(scope, direction);
     if (!tidied) {
@@ -2615,6 +2638,7 @@ export default function CanvasPage() {
   const handleAccessRequestDecision = async (
     requestId: number,
     action: "approve" | "reject",
+    role?: "EDITOR" | "VIEWER",
   ) => {
     if (requestDecisionInFlightId !== null) return;
 
@@ -2623,6 +2647,7 @@ export default function CanvasPage() {
       await apiClient.post(`${HTTP_BACKEND}/room/access/requests/decision`, {
         requestId,
         action,
+        ...(role ? { role } : {}),
       });
 
       setIncomingRoomAccessRequests((current) =>
@@ -3049,6 +3074,7 @@ export default function CanvasPage() {
                   [
                     ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
                     ["Public view link…", "Read-only share", () => setShowPublicLink(true)],
+                    ["People & roles…", "Editor / viewer", () => setShowMembers(true)],
                     ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
                     ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
                     ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
@@ -3232,6 +3258,28 @@ export default function CanvasPage() {
                               }`}
                             >
                               Approve
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={
+                                requestDecisionInFlightId === request.id
+                              }
+                              onClick={() =>
+                                void handleAccessRequestDecision(
+                                  request.id,
+                                  "approve",
+                                  "VIEWER",
+                                )
+                              }
+                              className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                                isDark
+                                  ? "border-sky-300/30 bg-sky-500/10 text-sky-100"
+                                  : "border-sky-300 bg-sky-50 text-sky-800"
+                              }`}
+                              title="Can look, follow and chat — but not edit"
+                            >
+                              View only
                             </button>
                             <button
                               type="button"
@@ -3964,6 +4012,7 @@ export default function CanvasPage() {
           isDark={isDark}
           onClose={() => setShowHistory(false)}
           fileName={roomId ?? "canvas"}
+          readOnly={isReadOnly}
           onRestored={() => pushToast("success", "Version restored.")}
           onError={(message) => pushToast("error", message)}
         />
@@ -3980,6 +4029,14 @@ export default function CanvasPage() {
           event.target.value = "";
         }}
       />
+
+      {showMembers && resolvedRoomId !== null && (
+        <MembersModal
+          roomId={resolvedRoomId}
+          isDark={isDark}
+          onClose={() => setShowMembers(false)}
+        />
+      )}
 
       {showPublicLink && resolvedRoomId !== null && (
         <PublicLinkModal
@@ -4022,17 +4079,23 @@ export default function CanvasPage() {
         />
       )}
 
+      {isReadOnly && (
+        <div className="pointer-events-none absolute left-1/2 top-[5.6rem] z-30 -translate-x-1/2 rounded-full bg-sky-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg">
+          👁 View only — you can look around, follow and chat, but not edit
+        </div>
+      )}
+
       <ArrangeBar
-        selectedCount={selectedIds.length}
+        selectedCount={isReadOnly ? 0 : selectedIds.length}
         isDark={isDark}
         onAlign={handleAlign}
         onDistribute={handleDistribute}
       />
 
       <AiEditBar
-        selectedCount={selectedIds.length}
+        selectedCount={isReadOnly ? 0 : selectedIds.length}
         sketchCount={
-          canvasState
+          canvasState && !isReadOnly
             ? canvasState
                 .getShapes()
                 .filter(
