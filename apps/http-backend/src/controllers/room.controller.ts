@@ -5,6 +5,7 @@ import {
   CreateRoomSchema,
   RenameRoomSlugSchema,
   RoomIdParamSchema,
+  RoomHistorySnapshotParamsSchema,
   RoomSlugParamSchema,
   OwnerSlugParamsSchema,
   ReplaceShapesBodySchema,
@@ -222,6 +223,61 @@ function parseViewportParam(
   if ([x1, y1, x2, y2].some((n) => !Number.isFinite(n))) return null;
   return { x1: x1!, y1: y1!, x2: x2!, y2: y2! };
 }
+
+/**
+ * Lists recorded version-history snapshots (newest first) without their
+ * payloads so the history panel can render a timeline cheaply.
+ */
+const listRoomHistory = asyncHandler(async (req, res) => {
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
+
+  const { roomId } = paramsValidation.data;
+  const userId = requireUserId(req.userId);
+  if (!(await hasRoomAccess(roomId, userId))) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  const snapshots = await prismaClient.roomSnapshot.findMany({
+    where: { roomId },
+    orderBy: { createdAt: "desc" },
+    take: 60,
+    select: { id: true, shapeCount: true, createdAt: true },
+  });
+
+  res.status(200).json(
+    new ApiResponse(200, { snapshots }, "Room history fetched successfully"),
+  );
+});
+
+const getRoomHistorySnapshot = asyncHandler(async (req, res) => {
+  const paramsValidation = RoomHistorySnapshotParamsSchema.safeParse(
+    req.params,
+  );
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid history snapshot");
+  }
+
+  const { roomId, snapshotId } = paramsValidation.data;
+  const userId = requireUserId(req.userId);
+  if (!(await hasRoomAccess(roomId, userId))) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  const snapshot = await prismaClient.roomSnapshot.findFirst({
+    where: { id: snapshotId, roomId },
+    select: { id: true, shapes: true, shapeCount: true, createdAt: true },
+  });
+  if (!snapshot) {
+    throw new ApiError(404, "Snapshot not found");
+  }
+
+  res.status(200).json(
+    new ApiResponse(200, { snapshot }, "Room history snapshot fetched"),
+  );
+});
 
 const getShapes = asyncHandler(async (req, res) => {
   const paramsValidation = RoomIdParamSchema.safeParse(req.params);
@@ -1317,6 +1373,8 @@ export {
   createRoom,
   listMyRooms,
   getShapes,
+  listRoomHistory,
+  getRoomHistorySnapshot,
   getRoomChatBootstrap,
   replaceShapes,
   getRoomIdFromSlug,

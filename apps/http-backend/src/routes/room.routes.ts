@@ -5,6 +5,8 @@ import {
   createRoom,
   listMyRooms,
   getShapes,
+  listRoomHistory,
+  getRoomHistorySnapshot,
   getRoomIdFromSlug,
   getRoomByOwnerAndSlug,
   replaceShapes,
@@ -24,6 +26,12 @@ roomRouter.post("/", authenticate, idempotencyMiddleware, createRoom);
 roomRouter.get("/mine", authenticate, listMyRooms);
 roomRouter.get("/:roomId/chat/bootstrap", authenticate, getRoomChatBootstrap);
 roomRouter.get("/:roomId/shapes", authenticate, getShapes);
+roomRouter.get("/:roomId/history", authenticate, listRoomHistory);
+roomRouter.get(
+  "/:roomId/history/:snapshotId",
+  authenticate,
+  getRoomHistorySnapshot,
+);
 roomRouter.put(
   "/:roomId/shapes",
   authenticate,

@@ -25,6 +25,7 @@ import { useCanvasSync } from "../../../hooks/useCanvasSync";
 import { useAiGeneration } from "../../../hooks/useAiGeneration";
 import { RemotePresenceLayer } from "../../components/RemotePresenceLayer";
 import { LiveCollabLayer } from "../../components/LiveCollabLayer";
+import { HistoryPanel } from "../../components/HistoryPanel";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1124,6 +1125,7 @@ export default function CanvasPage() {
   const viewportPersistTimerRef = useRef<number | null>(null);
   const pendingViewportForPersistRef = useRef<StoredViewport | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
   const [isJoiningCanvas, setIsJoiningCanvas] = useState(false);
@@ -2749,6 +2751,21 @@ export default function CanvasPage() {
                   onClick={() => {
                     setIsMenuOpen(false);
                     setShowRoomInfo(false);
+                    setShowHistory(true);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                  }`}
+                >
+                  <span>Version history</span>
+                  <span className="text-[11px] opacity-70">Time travel</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    setShowRoomInfo(false);
                     void handleReloadCanvas();
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
@@ -3603,6 +3620,18 @@ export default function CanvasPage() {
         shapesRef={syncResult.latestShapesRef}
         isDark={isDark}
       />
+
+      {showHistory && resolvedRoomId !== null && (
+        <HistoryPanel
+          roomId={resolvedRoomId}
+          canvasState={canvasState}
+          viewportRef={viewportLiveRef}
+          isDark={isDark}
+          onClose={() => setShowHistory(false)}
+          onRestored={() => pushToast("success", "Version restored.")}
+          onError={(message) => pushToast("error", message)}
+        />
+      )}
 
       <LiveCollabLayer
         presenceState={remotePresenceState}

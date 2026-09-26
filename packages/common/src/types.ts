@@ -36,6 +36,11 @@ export const RoomIdParamSchema = z.object({
   roomId: z.coerce.number().int().positive(),
 });
 
+export const RoomHistorySnapshotParamsSchema = z.object({
+  roomId: z.coerce.number().int().positive(),
+  snapshotId: z.coerce.number().int().positive(),
+});
+
 export const RoomSlugParamSchema = z.object({
   slug: RoomSlugSchema,
 });

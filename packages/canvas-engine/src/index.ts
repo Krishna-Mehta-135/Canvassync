@@ -6,6 +6,8 @@ export { CanvasState } from "./state";
 export { convertToPoints } from "./geometry";
 export { getConnectorRoutePoints, getArrowHeadPoints } from "./connectors";
 export { dispatch } from "./store";
+export { render } from "./renderer";
+export type { Viewport } from "./utils";
 export type { Shape } from "./types";
 export type { Tool } from "./interaction/tools";
 export type { AttachEventsController } from "./interaction/tools";

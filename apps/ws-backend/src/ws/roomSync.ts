@@ -73,6 +73,67 @@ export async function initializeRoomSync(roomId: number) {
   return state;
 }
 
+// ── Version history ──────────────────────────────────────────────────────────
+// Every persisted canvas state is a candidate for a history snapshot, but we
+// only record one per room per interval (trailing edge, so the final state of an
+// editing burst is always captured) and skip states identical to the last one.
+const HISTORY_MIN_INTERVAL_MS = Number(
+  process.env.HISTORY_MIN_INTERVAL_MS ?? 30_000,
+);
+const HISTORY_MAX_SNAPSHOTS_PER_ROOM = Number(
+  process.env.HISTORY_MAX_SNAPSHOTS_PER_ROOM ?? 60,
+);
+const historyPendingShapes = new Map<number, Shape[]>();
+const historyTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const historyLastFingerprint = new Map<number, string>();
+
+async function writeHistorySnapshot(roomId: number) {
+  const shapes = historyPendingShapes.get(roomId);
+  historyPendingShapes.delete(roomId);
+  if (!shapes) return;
+
+  const fingerprint = JSON.stringify(shapes);
+  if (historyLastFingerprint.get(roomId) === fingerprint) return;
+
+  try {
+    await prismaClient.roomSnapshot.create({
+      data: {
+        roomId,
+        shapes: shapes as unknown as object,
+        shapeCount: shapes.length,
+      },
+    });
+    historyLastFingerprint.set(roomId, fingerprint);
+
+    const stale = await prismaClient.roomSnapshot.findMany({
+      where: { roomId },
+      orderBy: { createdAt: "desc" },
+      skip: HISTORY_MAX_SNAPSHOTS_PER_ROOM,
+      select: { id: true },
+    });
+    if (stale.length > 0) {
+      await prismaClient.roomSnapshot.deleteMany({
+        where: { id: { in: stale.map((row) => row.id) } },
+      });
+    }
+  } catch (error) {
+    // History is best-effort and must never affect live sync/persistence.
+    console.error(`[WS] Failed to record history for room ${roomId}`, error);
+  }
+}
+
+function scheduleHistorySnapshot(roomId: number, shapes: Shape[]) {
+  historyPendingShapes.set(roomId, shapes);
+  if (historyTimers.has(roomId)) return;
+
+  const timer = setTimeout(() => {
+    historyTimers.delete(roomId);
+    void writeHistorySnapshot(roomId);
+  }, HISTORY_MIN_INTERVAL_MS);
+  timer.unref();
+  historyTimers.set(roomId, timer);
+}
+
 export async function persistShapes(roomId: number, shapes: Shape[]) {
   // Validate all shapes have required fields
   for (const shape of shapes) {
@@ -113,6 +174,8 @@ export async function persistShapes(roomId: number, shapes: Shape[]) {
       });
     }
   });
+
+  scheduleHistorySnapshot(roomId, uniqueShapes);
 }
 
 async function persistQueuedRoom(roomId: number) {
