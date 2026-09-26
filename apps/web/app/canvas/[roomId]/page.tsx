@@ -14,7 +14,7 @@ import {
   getArrowHeadPoints,
   getConnectorRoutePoints,
 } from "@repo/canvas-engine";
-import { CanvasState, mermaidToShapes, tidyLayout, MermaidParseError } from "@repo/canvas-engine";
+import { CanvasState, mermaidToShapes, tidyLayout, snapSketches, MermaidParseError } from "@repo/canvas-engine";
 import type { Shape, Tool } from "@repo/canvas-engine";
 import { HTTP_BACKEND } from "../../../config";
 import { apiClient } from "../../lib/apiClient";
@@ -3843,6 +3843,37 @@ export default function CanvasPage() {
 
       <AiEditBar
         selectedCount={selectedIds.length}
+        sketchCount={
+          canvasState
+            ? canvasState
+                .getShapes()
+                .filter(
+                  (shape) =>
+                    shape.type === "freehand" && selectedIds.includes(shape.id),
+                ).length
+            : 0
+        }
+        onSnapSketches={() => {
+          if (!canvasState) return;
+          const { shapes, recognized } = snapSketches(
+            canvasState.getShapes(),
+            new Set(selectedIds),
+          );
+          if (recognized === 0) {
+            pushToast(
+              "error",
+              "Couldn't recognize a shape — try a clearer rectangle, ellipse, diamond or straight line.",
+            );
+            return;
+          }
+          canvasState.setShapes(shapes);
+          controlsRef.current?.rerender();
+          setSelectedIds([]);
+          pushToast(
+            "success",
+            `Cleaned up ${recognized} sketch${recognized === 1 ? "" : "es"} (Ctrl/Cmd+Z to undo)`,
+          );
+        }}
         isGenerating={ai.isGenerating}
         isDark={isDark}
         onSubmit={(instruction) => {
