@@ -15,7 +15,7 @@ function isNode(shape: Shape): shape is NodeShape {
   return shape.type === "rect" || shape.type === "circle" || shape.type === "rhombus";
 }
 
-function translate(shape: Shape, dx: number, dy: number): Shape {
+export function translateShape(shape: Shape, dx: number, dy: number): Shape {
   switch (shape.type) {
     case "rect":
     case "rhombus":
@@ -104,11 +104,11 @@ export function tidyLayout(
   const moved = shapes.map((shape): Shape => {
     if (isNode(shape)) {
       const d = delta.get(shape.id);
-      return d ? translate(shape, d.dx, d.dy) : shape;
+      return d ? translateShape(shape, d.dx, d.dy) : shape;
     }
     if (shape.type === "text" && shape.parentId && delta.has(shape.parentId)) {
       const d = delta.get(shape.parentId)!;
-      return translate(shape, d.dx, d.dy);
+      return translateShape(shape, d.dx, d.dy);
     }
     return shape;
   });
@@ -183,7 +183,7 @@ export function tidyLayout(
       const previous = oldMid.get(connector.id);
       if (!previous) continue;
       if (Math.abs(previous.x - cx) <= 30 && Math.abs(previous.y - cy) <= 30) {
-        return translate(
+        return translateShape(
           shape,
           (connector.x1 + connector.x2) / 2 - previous.x,
           (connector.y1 + connector.y2) / 2 - previous.y,

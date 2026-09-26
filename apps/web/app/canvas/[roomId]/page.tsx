@@ -14,7 +14,15 @@ import {
   getArrowHeadPoints,
   getConnectorRoutePoints,
 } from "@repo/canvas-engine";
-import { CanvasState, mermaidToShapes, tidyLayout, snapSketches, MermaidParseError } from "@repo/canvas-engine";
+import {
+  CanvasState,
+  mermaidToShapes,
+  tidyLayout,
+  snapSketches,
+  buildTemplate,
+  MermaidParseError,
+  type TemplateId,
+} from "@repo/canvas-engine";
 import type { Shape, Tool } from "@repo/canvas-engine";
 import { HTTP_BACKEND } from "../../../config";
 import { apiClient } from "../../lib/apiClient";
@@ -30,6 +38,7 @@ import { HistoryPanel } from "../../components/HistoryPanel";
 import { AiEditBar } from "../../components/AiEditBar";
 import { MermaidModal } from "../../components/MermaidModal";
 import { SummaryModal } from "../../components/SummaryModal";
+import { TemplatesModal } from "../../components/TemplatesModal";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1163,6 +1172,7 @@ export default function CanvasPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [summaryText, setSummaryText] = useState<string | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [mermaidMode, setMermaidMode] = useState<"import" | "export" | null>(null);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
@@ -1973,6 +1983,52 @@ export default function CanvasPage() {
   });
 
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+
+  const getViewCenter = () => {
+    const viewport = viewportLiveRef.current;
+    const canvas = canvasRef.current;
+    return viewport && canvas
+      ? {
+          x: (canvas.clientWidth / 2 - viewport.x) / viewport.scale,
+          y: (canvas.clientHeight / 2 - viewport.y) / viewport.scale,
+        }
+      : { x: 0, y: 0 };
+  };
+
+  const handleInsertTemplate = (id: TemplateId) => {
+    if (!canvasState) return;
+    let shapes = buildTemplate(id, getViewCenter());
+    // Don't land on top of existing content: slide right of it if they overlap.
+    const existingBounds = getBoundsForShapes(canvasState.getShapes());
+    const templateBounds = getBoundsForShapes(shapes);
+    if (existingBounds && templateBounds) {
+      const overlaps =
+        templateBounds.minX < existingBounds.maxX &&
+        templateBounds.maxX > existingBounds.minX &&
+        templateBounds.minY < existingBounds.maxY &&
+        templateBounds.maxY > existingBounds.minY;
+      if (overlaps) {
+        shapes = translateShapes(
+          shapes,
+          existingBounds.maxX + 120 - templateBounds.minX,
+          existingBounds.minY - templateBounds.minY,
+        );
+      }
+    }
+    canvasState.setShapes([...canvasState.getShapes(), ...shapes]);
+    controlsRef.current?.rerender();
+    const bounds = getBoundsForShapes(shapes);
+    if (bounds) {
+      controlsRef.current?.focusViewportToBounds(bounds, {
+        padding: 140,
+        preserveScale: true,
+        smooth: true,
+        durationMs: 340,
+      });
+    }
+    setShowTemplates(false);
+    pushToast("success", "Template added (Ctrl/Cmd+Z to undo).");
+  };
 
   const handleImageChosen = async (file: File | undefined) => {
     if (!file || !canvasState || ai.isGenerating) return;
@@ -2970,6 +3026,7 @@ export default function CanvasPage() {
                 </div>
                 {(
                   [
+                    ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
                     ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
                     ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
                     ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
@@ -3900,6 +3957,14 @@ export default function CanvasPage() {
           event.target.value = "";
         }}
       />
+
+      {showTemplates && (
+        <TemplatesModal
+          isDark={isDark}
+          onPick={handleInsertTemplate}
+          onClose={() => setShowTemplates(false)}
+        />
+      )}
 
       {summaryText && (
         <SummaryModal

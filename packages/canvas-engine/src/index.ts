@@ -18,6 +18,8 @@ export {
 } from "./diagram/mermaid";
 export { tidyLayout } from "./diagram/tidy";
 export { snapSketches, recognizeStroke } from "./diagram/sketch";
+export { TEMPLATES, buildTemplate } from "./diagram/templates";
+export type { TemplateId, TemplateInfo } from "./diagram/templates";
 export type { LayoutDirection } from "./diagram/layout";
 export type { Tool } from "./interaction/tools";
 export type { AttachEventsController } from "./interaction/tools";
