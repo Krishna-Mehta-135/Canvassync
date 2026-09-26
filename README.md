@@ -21,6 +21,7 @@
   - [API Reference](docs/api-reference.md)
   - [Developer Guide](docs/developer-guide.md)
   - [Codebase Walkthrough](docs/codebase-walkthrough.md)
+  - [Feature Guide](docs/features.md)
   - **Conceptual Deep Dives:**
     - [Core Concepts (State, Shapes, Rooms)](docs/core-concepts.md)
     - [Persistence Layer (Storage, Soft Delete, Recovery)](docs/persistence-layer.md)
@@ -64,6 +65,13 @@ Canvas.io is crafted for visionary teams that demand live, structured visual col
 - Invite links and owner-managed access requests
 - Group chat, direct messages, and shape-linked comments
 - Export-ready canvas workflows in the web app
+- Live cursors, cursor chat, reactions, follow/present mode and a shared timer
+- Version history with time-travel restore and timelapse video export
+- AI: generate diagrams, edit a selection in place, summarize a board, turn a photo into shapes
+- Mermaid import/export, tidy auto-layout, sketch clean-up, templates, align/distribute, minimap
+- Editor / view-only roles and read-only public share links
+
+See the [Feature Guide](docs/features.md) for details.
 
 ### Why this architecture matters
 
