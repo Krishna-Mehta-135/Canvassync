@@ -14,7 +14,7 @@ import {
   getArrowHeadPoints,
   getConnectorRoutePoints,
 } from "@repo/canvas-engine";
-import { CanvasState } from "@repo/canvas-engine";
+import { CanvasState, mermaidToShapes, tidyLayout, MermaidParseError } from "@repo/canvas-engine";
 import type { Shape, Tool } from "@repo/canvas-engine";
 import { HTTP_BACKEND } from "../../../config";
 import { apiClient } from "../../lib/apiClient";
@@ -27,6 +27,7 @@ import { RemotePresenceLayer } from "../../components/RemotePresenceLayer";
 import { LiveCollabLayer } from "../../components/LiveCollabLayer";
 import { HistoryPanel } from "../../components/HistoryPanel";
 import { AiEditBar } from "../../components/AiEditBar";
+import { MermaidModal } from "../../components/MermaidModal";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1127,6 +1128,7 @@ export default function CanvasPage() {
   const pendingViewportForPersistRef = useRef<StoredViewport | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [mermaidMode, setMermaidMode] = useState<"import" | "export" | null>(null);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
   const [isJoiningCanvas, setIsJoiningCanvas] = useState(false);
@@ -2200,6 +2202,79 @@ export default function CanvasPage() {
     });
   };
 
+  const handleMermaidImport = (source: string): string | null => {
+    if (!canvasState) return "Canvas is not ready yet.";
+    const viewport = viewportLiveRef.current;
+    const canvas = canvasRef.current;
+    const center =
+      viewport && canvas
+        ? {
+            x: (canvas.clientWidth / 2 - viewport.x) / viewport.scale,
+            y: (canvas.clientHeight / 2 - viewport.y) / viewport.scale,
+          }
+        : { x: 0, y: 0 };
+
+    try {
+      const imported = mermaidToShapes(source, { center });
+      canvasState.setShapes([...canvasState.getShapes(), ...imported]);
+      controlsRef.current?.rerender();
+      const bounds = getBoundsForShapes(imported);
+      if (bounds) {
+        controlsRef.current?.focusViewportToBounds(bounds, {
+          padding: 140,
+          preserveScale: true,
+          smooth: true,
+          durationMs: 340,
+        });
+      }
+      setMermaidMode(null);
+      pushToast("success", "Mermaid diagram inserted (Ctrl/Cmd+Z to undo).");
+      return null;
+    } catch (error) {
+      return error instanceof MermaidParseError
+        ? error.message
+        : "Could not read that diagram.";
+    }
+  };
+
+  /** Shapes that belong to the current selection (nodes, their labels, connectors between them). */
+  const getSelectionScope = (): Shape[] | null => {
+    if (!canvasState || selectedIds.length === 0) return null;
+    const selected = new Set(selectedIds);
+    return canvasState.getShapes().filter((shape) => {
+      if (selected.has(shape.id)) return true;
+      if (shape.type === "text" && shape.parentId) return selected.has(shape.parentId);
+      if (shape.type === "arrow" || shape.type === "line") {
+        return (
+          !!shape.startBinding &&
+          !!shape.endBinding &&
+          selected.has(shape.startBinding.shapeId) &&
+          selected.has(shape.endBinding.shapeId)
+        );
+      }
+      return false;
+    });
+  };
+
+  const handleTidyLayout = (direction: "TD" | "LR") => {
+    if (!canvasState) return;
+    const scope = getSelectionScope() ?? canvasState.getShapes();
+    const tidied = tidyLayout(scope, direction);
+    if (!tidied) {
+      pushToast(
+        "error",
+        "Nothing to tidy — select connected shapes (connectors must be attached).",
+      );
+      return;
+    }
+    const updated = new Map(tidied.map((shape) => [shape.id, shape]));
+    canvasState.setShapes(
+      canvasState.getShapes().map((shape) => updated.get(shape.id) ?? shape),
+    );
+    controlsRef.current?.rerender();
+    pushToast("success", "Layout tidied (Ctrl/Cmd+Z to undo).");
+  };
+
   const handleReloadCanvas = async () => {
     if (!canvasState || resolvedRoomId === null || isReloadingCanvas) return;
 
@@ -2753,6 +2828,37 @@ export default function CanvasPage() {
                   Reset view
                 </button>
 
+                <div
+                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                />
+                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
+                  Diagram tools
+                </div>
+                {(
+                  [
+                    ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
+                    ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
+                    ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
+                    ["Tidy layout (left-right)", "Auto-arrange", () => handleTidyLayout("LR")],
+                  ] as const
+                ).map(([label, hint, action]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      setShowRoomInfo(false);
+                      action();
+                    }}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                      isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    }`}
+                  >
+                    <span>{label}</span>
+                    <span className="text-[11px] opacity-70">{hint}</span>
+                  </button>
+                ))}
                 <div
                   className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
                 />
@@ -3644,6 +3750,21 @@ export default function CanvasPage() {
           onClose={() => setShowHistory(false)}
           onRestored={() => pushToast("success", "Version restored.")}
           onError={(message) => pushToast("error", message)}
+        />
+      )}
+
+      {mermaidMode && (
+        <MermaidModal
+          mode={mermaidMode}
+          isDark={isDark}
+          onImport={handleMermaidImport}
+          shapes={canvasState ? (getSelectionScope() ?? canvasState.getShapes()) : []}
+          scopeLabel={selectedIds.length > 0 ? "the selection" : "the whole canvas"}
+          onClose={() => setMermaidMode(null)}
+          onCopied={() => {
+            setMermaidMode(null);
+            pushToast("success", "Mermaid copied to clipboard.");
+          }}
         />
       )}
 
