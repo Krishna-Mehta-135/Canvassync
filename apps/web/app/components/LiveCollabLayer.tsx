@@ -21,6 +21,8 @@ type LiveCollabLayerProps = {
   applyViewport: (viewport: Viewport) => void;
   /** View-only members can watch the timer but not start or stop it. */
   canControlTimer?: boolean;
+  /** Set by the slide presenter so the room follows the presenter's camera. */
+  forcePresent?: boolean;
   isDark: boolean;
 };
 
@@ -112,6 +114,7 @@ export function LiveCollabLayer({
   subscribeEphemeral,
   applyViewport,
   canControlTimer = true,
+  forcePresent,
   isDark,
 }: LiveCollabLayerProps) {
   const cursorsRef = useRef<Map<string, RemoteCursor>>(new Map());
@@ -457,6 +460,14 @@ export function LiveCollabLayer({
       setReactions((previous) => previous.filter((r) => r.id !== id));
     }, REACTION_LIFETIME_MS);
   };
+
+  // The slide presenter drives the same Present broadcast.
+  useEffect(() => {
+    if (forcePresent === undefined) return;
+    presentingRef.current = forcePresent;
+    setPresenting(forcePresent);
+    if (forcePresent) setFollow(null);
+  }, [forcePresent, setFollow]);
 
   const togglePresenting = () => {
     const next = !presentingRef.current;

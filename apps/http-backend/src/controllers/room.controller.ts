@@ -7,6 +7,7 @@ import {
   RoomIdParamSchema,
   RoomHistorySnapshotParamsSchema,
   RoomMemberParamsSchema,
+  ReplaceSlidesBodySchema,
   RoomMemberRoleUpdateSchema,
   RoomSlugParamSchema,
   OwnerSlugParamsSchema,
@@ -1204,6 +1205,50 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
   );
 });
 
+// GET /room/:roomId/slides — members: the ordered slide deck.
+const listRoomSlides = asyncHandler(async (req, res) => {
+  const params = RoomIdParamSchema.safeParse(req.params);
+  if (!params.success) throw new ApiError(400, "Invalid roomId");
+
+  const { roomId } = params.data;
+  if (!(await hasRoomAccess(roomId, requireUserId(req.userId)))) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  const slides = await prismaClient.roomSlide.findMany({
+    where: { roomId },
+    orderBy: { position: "asc" },
+    select: { id: true, title: true, x: true, y: true, width: true, height: true },
+  });
+  res.status(200).json(new ApiResponse(200, { slides }, "Slides fetched"));
+});
+
+// PUT /room/:roomId/slides — owner/editor: replace the whole ordered deck.
+const replaceRoomSlides = asyncHandler(async (req, res) => {
+  const params = RoomIdParamSchema.safeParse(req.params);
+  const body = ReplaceSlidesBodySchema.safeParse(req.body);
+  if (!params.success || !body.success) throw new ApiError(400, "Invalid slides payload");
+
+  const { roomId } = params.data;
+  if (!(await canEditRoom(roomId, requireUserId(req.userId)))) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  await prismaClient.$transaction([
+    prismaClient.roomSlide.deleteMany({ where: { roomId } }),
+    prismaClient.roomSlide.createMany({
+      data: body.data.slides.map((slide, index) => ({ roomId, position: index, ...slide })),
+    }),
+  ]);
+
+  const slides = await prismaClient.roomSlide.findMany({
+    where: { roomId },
+    orderBy: { position: "asc" },
+    select: { id: true, title: true, x: true, y: true, width: true, height: true },
+  });
+  res.status(200).json(new ApiResponse(200, { slides }, "Slides saved"));
+});
+
 // GET /room/:roomId/members — owner: people with access and their roles.
 const listRoomMembers = asyncHandler(async (req, res) => {
   const params = RoomIdParamSchema.safeParse(req.params);
@@ -1480,6 +1525,8 @@ export {
   listRoomMembers,
   updateRoomMemberRole,
   removeRoomMember,
+  listRoomSlides,
+  replaceRoomSlides,
   getRoomChatBootstrap,
   replaceShapes,
   getRoomIdFromSlug,

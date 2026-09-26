@@ -16,6 +16,8 @@ import {
   updateRoomMemberRole,
   decideRoomAccessRequest,
   replaceShapes,
+  listRoomSlides,
+  replaceRoomSlides,
 } from "./room.controller";
 
 vi.mock("@repo/db/client", async () => {
@@ -230,5 +232,45 @@ describe("version history endpoints", () => {
     await call(listRoomHistory, { params: { roomId: "1" }, userId: "stranger" } as any, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(db.roomSnapshot.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("slides", () => {
+  const slide = { title: "Intro", x: 0, y: 0, width: 1600, height: 900 };
+
+  it("lists slides in order for members", async () => {
+    db.room.findFirst.mockResolvedValue({ id: 1 });
+    db.roomSlide.findMany.mockResolvedValue([{ id: 1, ...slide }]);
+    const res = makeRes();
+    await call(listRoomSlides, { params: { roomId: "1" }, userId: "member" } as any, res);
+    expect(db.roomSlide.findMany.mock.calls[0][0].orderBy).toEqual({ position: "asc" });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("replaces the deck with positions assigned by order", async () => {
+    db.room.findFirst.mockResolvedValue({ id: 1 });
+    db.$transaction.mockResolvedValue([]);
+    db.roomSlide.findMany.mockResolvedValue([]);
+    const res = makeRes();
+    await call(replaceRoomSlides, { params: { roomId: "1" }, body: { slides: [slide, { ...slide, title: "Two" }] }, userId: OWNER } as any, res);
+    expect(db.roomSlide.createMany).toHaveBeenCalledWith({
+      data: [
+        { roomId: 1, position: 0, ...slide },
+        { roomId: 1, position: 1, ...slide, title: "Two" },
+      ],
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("rejects invalid slides and non-editors", async () => {
+    db.room.findFirst.mockResolvedValue({ id: 1 });
+    const bad = makeRes();
+    await call(replaceRoomSlides, { params: { roomId: "1" }, body: { slides: [{ ...slide, width: 0 }] }, userId: OWNER } as any, bad);
+    expect(bad.status).toHaveBeenCalledWith(400);
+
+    db.room.findFirst.mockResolvedValue(null);
+    const denied = makeRes();
+    await call(replaceRoomSlides, { params: { roomId: "1" }, body: { slides: [slide] }, userId: "viewer" } as any, denied);
+    expect(denied.status).toHaveBeenCalledWith(403);
   });
 });

@@ -41,6 +41,18 @@ export const RoomHistorySnapshotParamsSchema = z.object({
   snapshotId: z.coerce.number().int().positive(),
 });
 
+export const SlideInputSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().positive().max(1_000_000),
+  height: z.number().finite().positive().max(1_000_000),
+});
+
+export const ReplaceSlidesBodySchema = z.object({
+  slides: z.array(SlideInputSchema).max(100),
+});
+
 export const RoomSlugParamSchema = z.object({
   slug: RoomSlugSchema,
 });

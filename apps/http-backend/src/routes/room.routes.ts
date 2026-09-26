@@ -10,6 +10,8 @@ import {
   listRoomMembers,
   updateRoomMemberRole,
   removeRoomMember,
+  listRoomSlides,
+  replaceRoomSlides,
   getRoomIdFromSlug,
   getRoomByOwnerAndSlug,
   replaceShapes,
@@ -38,6 +40,13 @@ roomRouter.get("/:roomId/shapes", authenticate, getShapes);
 roomRouter.get("/:roomId/public", authenticate, getPublicLinkStatus);
 roomRouter.post("/:roomId/public", authenticate, enablePublicLink);
 roomRouter.delete("/:roomId/public", authenticate, disablePublicLink);
+roomRouter.get("/:roomId/slides", authenticate, listRoomSlides);
+roomRouter.put(
+  "/:roomId/slides",
+  authenticate,
+  idempotencyMiddleware,
+  replaceRoomSlides,
+);
 roomRouter.get("/:roomId/members", authenticate, listRoomMembers);
 roomRouter.patch(
   "/:roomId/members/:userId",

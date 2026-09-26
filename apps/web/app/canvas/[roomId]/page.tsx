@@ -48,6 +48,8 @@ import { TemplatesModal } from "../../components/TemplatesModal";
 import { ArrangeBar } from "../../components/ArrangeBar";
 import { PublicLinkModal } from "../../components/PublicLinkModal";
 import { MembersModal } from "../../components/MembersModal";
+import { SlidesModal, type Slide } from "../../components/SlidesModal";
+import { SlidePresenter } from "../../components/SlidePresenter";
 import { Minimap } from "../../components/Minimap";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
@@ -1192,6 +1194,8 @@ export default function CanvasPage() {
   const [showPublicLink, setShowPublicLink] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
+  const [showSlides, setShowSlides] = useState(false);
+  const [presentation, setPresentation] = useState<{ slides: Slide[]; index: number } | null>(null);
   const [mermaidMode, setMermaidMode] = useState<"import" | "export" | null>(null);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
@@ -2050,6 +2054,54 @@ export default function CanvasPage() {
     applyArrangement((shapes, ids) => alignShapes(shapes, ids, mode));
   const handleDistribute = (axis: DistributeAxis) =>
     applyArrangement((shapes, ids) => distributeShapes(shapes, ids, axis));
+
+  /** Rectangle of canvas on screen right now. */
+  const getCurrentViewRect = () => {
+    const viewport = viewportLiveRef.current;
+    const canvas = canvasRef.current;
+    if (!viewport || !canvas) return null;
+    return {
+      x: -viewport.x / viewport.scale,
+      y: -viewport.y / viewport.scale,
+      width: canvas.clientWidth / viewport.scale,
+      height: canvas.clientHeight / viewport.scale,
+    };
+  };
+
+  /** Selection bounds padded and widened/heightened to the screen's aspect ratio. */
+  const getSelectionFrameRect = () => {
+    const canvas = canvasRef.current;
+    if (!canvasState || !canvas || selectedIds.length === 0) return null;
+    const selected = canvasState.getShapes().filter((shape) => selectedIds.includes(shape.id));
+    const bounds = getBoundsForShapes(selected);
+    if (!bounds) return null;
+
+    const padding = 60;
+    let width = bounds.maxX - bounds.minX + padding * 2;
+    let height = bounds.maxY - bounds.minY + padding * 2;
+    const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight);
+    if (width / height < aspect) width = height * aspect;
+    else height = width / aspect;
+    return {
+      x: (bounds.minX + bounds.maxX) / 2 - width / 2,
+      y: (bounds.minY + bounds.maxY) / 2 - height / 2,
+      width,
+      height,
+    };
+  };
+
+  const goToSlide = (slide: Slide) => {
+    skipNextViewportPersistRef.current = true;
+    controlsRef.current?.focusViewportToBounds(
+      {
+        minX: slide.x,
+        minY: slide.y,
+        maxX: slide.x + slide.width,
+        maxY: slide.y + slide.height,
+      },
+      { padding: 24, smooth: true, durationMs: 450 },
+    );
+  };
 
   const handleInsertTemplate = (id: TemplateId) => {
     if (!canvasState) return;
@@ -3109,6 +3161,7 @@ export default function CanvasPage() {
                 {(
                   [
                     ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
+                    ["Slides…", "Present a deck", () => setShowSlides(true)],
                     ["Public view link…", "Read-only share", () => setShowPublicLink(true)],
                     ["People & roles…", "Editor / viewer", () => setShowMembers(true)],
                     [showMinimap ? "Hide minimap" : "Show minimap", "Overview", () => setShowMinimap((value) => !value)],
@@ -4068,6 +4121,33 @@ export default function CanvasPage() {
         }}
       />
 
+      {showSlides && resolvedRoomId !== null && (
+        <SlidesModal
+          roomId={resolvedRoomId}
+          canEdit={!isReadOnly}
+          isDark={isDark}
+          getCurrentView={getCurrentViewRect}
+          getSelectionFrame={getSelectionFrameRect}
+          goTo={goToSlide}
+          onPresent={(slides, index) => {
+            setShowSlides(false);
+            setPresentation({ slides, index });
+          }}
+          onClose={() => setShowSlides(false)}
+          onError={(message) => pushToast("error", message)}
+        />
+      )}
+
+      {presentation && (
+        <SlidePresenter
+          slides={presentation.slides}
+          startIndex={presentation.index}
+          isDark={isDark}
+          goTo={goToSlide}
+          onExit={() => setPresentation(null)}
+        />
+      )}
+
       {showMembers && resolvedRoomId !== null && (
         <MembersModal
           roomId={resolvedRoomId}
@@ -4210,6 +4290,7 @@ export default function CanvasPage() {
           controlsRef.current?.setViewport(nextViewport);
         }}
         canControlTimer={!isReadOnly}
+        forcePresent={presentation !== null}
         isDark={isDark}
       />
 
