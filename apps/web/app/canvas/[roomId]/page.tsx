@@ -19,6 +19,8 @@ import {
   mermaidToShapes,
   tidyLayout,
   snapSketches,
+  bindTextToContainers,
+  bindConnectorsToContainers,
   buildTemplate,
   alignShapes,
   distributeShapes,
@@ -809,6 +811,12 @@ function getShapeBounds(shape: Shape) {
   }
 
   return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+}
+
+/** Links loose AI-drawn labels and connectors to the boxes they belong to. */
+function linkAiShapes(all: Shape[], newIds: ReadonlySet<string>): Shape[] {
+  const withLabels = bindTextToContainers(all, newIds).shapes;
+  return bindConnectorsToContainers(withLabels, newIds).shapes;
 }
 
 function translateShapes(shapes: Shape[], dx: number, dy: number): Shape[] {
@@ -1948,10 +1956,15 @@ export default function CanvasPage() {
     // undoable step. Everything not selected is left exactly as it was.
     if (meta?.replaceIds) {
       const replaced = new Set(meta.replaceIds);
-      canvasState.setShapes([
-        ...canvasState.getShapes().filter((shape) => !replaced.has(shape.id)),
-        ...themed,
-      ]);
+      canvasState.setShapes(
+        linkAiShapes(
+          [
+            ...canvasState.getShapes().filter((shape) => !replaced.has(shape.id)),
+            ...themed,
+          ],
+          new Set(themed.map((shape) => shape.id)),
+        ),
+      );
       controlsRef.current?.rerender();
       pushToast("success", `✦ AI updated ${themed.length} shapes (Ctrl/Cmd+Z to undo)`);
       return;
@@ -1970,12 +1983,14 @@ export default function CanvasPage() {
         toAdd = translateShapes(themed, dx, dy);
       }
     }
-    toAdd.forEach((shape) => {
-      dispatch(canvasState, {
-        type: "ADD_SHAPE",
-        payload: shape,
-      });
-    });
+    // AI places labels as loose text; link each to the box it sits in so the
+    // text follows when the box is moved.
+    canvasState.setShapes(
+      linkAiShapes(
+        [...canvasState.getShapes(), ...toAdd],
+        new Set(toAdd.map((shape) => shape.id)),
+      ),
+    );
     controlsRef.current?.rerender();
     const generatedBounds = getBoundsForShapes(toAdd);
     if (generatedBounds) {
@@ -2489,6 +2504,25 @@ export default function CanvasPage() {
       }
       return false;
     });
+  };
+
+  const handleAttachLabels = () => {
+    if (!canvasState) return;
+    if (denyIfReadOnly()) return;
+    const scope = getSelectionScope();
+    const only = scope ? new Set(scope.map((shape) => shape.id)) : undefined;
+    const labels = bindTextToContainers(canvasState.getShapes(), only);
+    const connectors = bindConnectorsToContainers(labels.shapes, only);
+    if (labels.linked === 0 && connectors.bound === 0) {
+      pushToast("info", "Nothing loose to attach.");
+      return;
+    }
+    canvasState.setShapes(connectors.shapes);
+    controlsRef.current?.rerender();
+    pushToast(
+      "success",
+      `Attached ${labels.linked} label(s) and ${connectors.bound} connector end(s) — they now follow their shapes.`,
+    );
   };
 
   const handleTidyLayout = (direction: "TD" | "LR") => {
@@ -3080,6 +3114,7 @@ export default function CanvasPage() {
                     [showMinimap ? "Hide minimap" : "Show minimap", "Overview", () => setShowMinimap((value) => !value)],
                     ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
                     ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
+                    ["Attach labels & lines", "Follow their boxes", () => handleAttachLabels()],
                     ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
                     ["Tidy layout (left-right)", "Auto-arrange", () => handleTidyLayout("LR")],
                     ["Summarize board ✦", "AI notes", () => handleSummarizeBoard()],

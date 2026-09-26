@@ -19,6 +19,7 @@ export {
 export { tidyLayout } from "./diagram/tidy";
 export { snapSketches, recognizeStroke } from "./diagram/sketch";
 export { TEMPLATES, buildTemplate } from "./diagram/templates";
+export { bindTextToContainers, bindConnectorsToContainers } from "./diagram/labels";
 export { alignShapes, distributeShapes } from "./diagram/arrange";
 export type { AlignMode, DistributeAxis } from "./diagram/arrange";
 export type { TemplateId, TemplateInfo } from "./diagram/templates";
