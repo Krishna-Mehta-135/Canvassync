@@ -3152,44 +3152,71 @@ export default function CanvasPage() {
                   Reset view
                 </button>
 
-                <div
-                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
-                />
-                <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
-                  Canvas tools
-                </div>
                 {(
                   [
-                    ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
-                    ["Slides…", "Present a deck", () => setShowSlides(true)],
-                    ["Public view link…", "Read-only share", () => setShowPublicLink(true)],
-                    ["People & roles…", "Editor / viewer", () => setShowMembers(true)],
-                    [showMinimap ? "Hide minimap" : "Show minimap", "Overview", () => setShowMinimap((value) => !value)],
-                    ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
-                    ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
-                    ["Attach labels & lines", "Follow their boxes", () => handleAttachLabels()],
-                    ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
-                    ["Tidy layout (left-right)", "Auto-arrange", () => handleTidyLayout("LR")],
-                    ["Summarize board ✦", "AI notes", () => handleSummarizeBoard()],
-                    ["Image → shapes ✦", "Photo/screenshot", () => imageInputRef.current?.click()],
-                  ] as const
-                ).map(([label, hint, action]) => (
-                  <button
-                    key={label}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setIsMenuOpen(false);
-                      setShowRoomInfo(false);
-                      action();
-                    }}
-                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                      isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
-                    }`}
+                    [
+                      "Insert & import",
+                      [
+                        ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
+                        ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
+                        ["Image → shapes ✦", "Photo/screenshot", () => imageInputRef.current?.click()],
+                        ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
+                      ],
+                    ],
+                    [
+                      "Arrange",
+                      [
+                        ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
+                        ["Tidy layout (left-right)", "Auto-arrange", () => handleTidyLayout("LR")],
+                        ["Attach labels & lines", "Follow their boxes", () => handleAttachLabels()],
+                      ],
+                    ],
+                    [
+                      "AI",
+                      [["Summarize board ✦", "Key points & actions", () => handleSummarizeBoard()]],
+                    ],
+                    [
+                      "Present & share",
+                      [
+                        ["Slides…", "Present a deck", () => setShowSlides(true)],
+                        ["Public view link…", "Read-only share", () => setShowPublicLink(true)],
+                        ["People & roles…", "Editor / viewer", () => setShowMembers(true)],
+                      ],
+                    ],
+                    [
+                      "View",
+                      [[showMinimap ? "Hide minimap" : "Show minimap", "Overview", () => setShowMinimap((value) => !value)]],
+                    ],
+                  ] as ReadonlyArray<
+                    readonly [string, ReadonlyArray<readonly [string, string, () => void]>]
                   >
-                    <span>{label}</span>
-                    <span className="text-[11px] opacity-70">{hint}</span>
-                  </button>
+                ).map(([groupLabel, entries]) => (
+                  <div key={groupLabel}>
+                    <div
+                      className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                    />
+                    <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
+                      {groupLabel}
+                    </div>
+                    {entries.map(([label, hint, action]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsMenuOpen(false);
+                          setShowRoomInfo(false);
+                          action();
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                          isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                        }`}
+                      >
+                        <span>{label}</span>
+                        <span className="text-[11px] opacity-70">{hint}</span>
+                      </button>
+                    ))}
+                  </div>
                 ))}
                 <div
                   className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}

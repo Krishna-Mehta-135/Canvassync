@@ -18,7 +18,7 @@ const features = [
     icon: Users,
     title: "Multiplayer Engine",
     description:
-      "Low-latency WebSockets ensure everyone's cursor and edits are synced sub-50ms.",
+      "Low-latency WebSockets keep cursors, edits and voice in sync — follow a teammate or present to the whole room.",
     color: "text-indigo-600 dark:text-indigo-400",
     bg: "bg-indigo-50 dark:bg-indigo-900/20",
     border: "border-indigo-200 dark:border-indigo-900/50",
@@ -27,7 +27,7 @@ const features = [
     icon: Cpu,
     title: "AI Co-pilot",
     description:
-      "Generate entire diagrams from structural prompts. Turn ideas into raw geometry.",
+      "Generate diagrams from a prompt, edit a selection in place, summarize a board, or turn a photo into shapes.",
     color: "text-emerald-600 dark:text-emerald-400",
     bg: "bg-emerald-50 dark:bg-emerald-900/20",
     border: "border-emerald-200 dark:border-emerald-900/50",
@@ -45,7 +45,7 @@ const features = [
     icon: Lock,
     title: "Enterprise Auth",
     description:
-      "Strict room permissions. Invite-only access with role-based visibility controls.",
+      "Invite-only rooms with editor and view-only roles, plus read-only public links you can revoke any time.",
     color: "text-rose-600 dark:text-rose-400",
     bg: "bg-rose-50 dark:bg-rose-900/20",
     border: "border-rose-200 dark:border-rose-900/50",
@@ -54,7 +54,7 @@ const features = [
     icon: Share2,
     title: "Vector Export",
     description:
-      "Export perfect SVGs and PDFs for documentation. No pixelated artifacts.",
+      "Export crisp SVG, PDF and PNG — or a timelapse video of how the board came together.",
     color: "text-purple-600 dark:text-purple-400",
     bg: "bg-purple-50 dark:bg-purple-900/20",
     border: "border-purple-200 dark:border-purple-900/50",

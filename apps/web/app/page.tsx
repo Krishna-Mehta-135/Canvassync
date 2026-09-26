@@ -2,6 +2,7 @@ import { Navbar } from "./components/landing/Navbar";
 import { HeroSection } from "./components/landing/HeroSection";
 import { InteractiveDemoSection } from "./components/landing/InteractiveDemoSection";
 import { FeaturesSection } from "./components/landing/FeaturesSection";
+import { TeamFeaturesSection } from "./components/landing/TeamFeaturesSection";
 import { ToolbarShowcase } from "./components/landing/ToolbarShowcase";
 import { AIHighlightSection } from "./components/landing/AIHighlightSection";
 import { HowItWorksSection } from "./components/landing/HowItWorksSection";
@@ -16,6 +17,7 @@ export default function LandingPage() {
       <InteractiveDemoSection />
       <AIHighlightSection />
       <FeaturesSection />
+      <TeamFeaturesSection />
       <ToolbarShowcase />
       <HowItWorksSection />
       <FinalCTASection />

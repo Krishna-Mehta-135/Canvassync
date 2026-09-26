@@ -169,9 +169,11 @@ describe("member roles", () => {
 
   it("removes a member and their approved access request", async () => {
     db.room.findFirst.mockResolvedValue({ id: 1, adminId: OWNER });
-    db.$transaction.mockResolvedValue([]);
+    db.$transaction.mockImplementation(async (fn: any) => fn(db));
     const res = makeRes();
     await call(removeRoomMember, { params: { roomId: "1", userId: "u2" }, userId: OWNER } as any, res);
+    // The shared DB wrapper only supports function-style transactions.
+    expect(typeof db.$transaction.mock.calls[0][0]).toBe("function");
     expect(db.roomMember.deleteMany).toHaveBeenCalledWith({ where: { roomId: 1, userId: "u2" } });
     expect(db.roomAccessRequest.deleteMany).toHaveBeenCalledWith({ where: { roomId: 1, requesterId: "u2" } });
     expect(res.status).toHaveBeenCalledWith(200);
@@ -249,10 +251,11 @@ describe("slides", () => {
 
   it("replaces the deck with positions assigned by order", async () => {
     db.room.findFirst.mockResolvedValue({ id: 1 });
-    db.$transaction.mockResolvedValue([]);
+    db.$transaction.mockImplementation(async (fn: any) => fn(db));
     db.roomSlide.findMany.mockResolvedValue([]);
     const res = makeRes();
     await call(replaceRoomSlides, { params: { roomId: "1" }, body: { slides: [slide, { ...slide, title: "Two" }] }, userId: OWNER } as any, res);
+    expect(typeof db.$transaction.mock.calls[0][0]).toBe("function");
     expect(db.roomSlide.createMany).toHaveBeenCalledWith({
       data: [
         { roomId: 1, position: 0, ...slide },

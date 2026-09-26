@@ -55,6 +55,7 @@ export function Navbar() {
           {[
             { label: "How it works", href: "#how-it-works" },
             { label: "Features", href: "#features" },
+            { label: "Teams", href: "#teams" },
             { label: "Try it out", href: "#demo" },
           ].map((item) => (
             <a
@@ -66,7 +67,7 @@ export function Navbar() {
                   .querySelector(item.href)
                   ?.scrollIntoView({ behavior: "smooth" });
               }}
-              className="px-6 py-2.5 text-[16px] font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700/50 rounded-full transition-all"
+              className="px-4 py-2.5 text-[15px] font-bold text-slate-600 lg:px-6 lg:text-[16px] dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700/50 rounded-full transition-all"
             >
               {item.label}
             </a>
@@ -165,6 +166,7 @@ export function Navbar() {
               {[
                 { label: "How it works", href: "#how-it-works" },
                 { label: "Features", href: "#features" },
+                { label: "Teams", href: "#teams" },
                 { label: "Try it out", href: "#demo" },
               ].map((item) => (
                 <a

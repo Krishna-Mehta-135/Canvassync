@@ -1234,12 +1234,12 @@ const replaceRoomSlides = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Forbidden");
   }
 
-  await prismaClient.$transaction([
-    prismaClient.roomSlide.deleteMany({ where: { roomId } }),
-    prismaClient.roomSlide.createMany({
+  await prismaClient.$transaction(async (tx) => {
+    await tx.roomSlide.deleteMany({ where: { roomId } });
+    await tx.roomSlide.createMany({
       data: body.data.slides.map((slide, index) => ({ roomId, position: index, ...slide })),
-    }),
-  ]);
+    });
+  });
 
   const slides = await prismaClient.roomSlide.findMany({
     where: { roomId },
@@ -1310,13 +1310,15 @@ const removeRoomMember = asyncHandler(async (req, res) => {
   const { roomId, userId: memberId } = params.data;
   await assertOwnerRoomAccess(roomId, requireUserId(req.userId));
 
-  await prismaClient.$transaction([
-    prismaClient.roomMember.deleteMany({ where: { roomId, userId: memberId } }),
+  // Function-style transaction: the shared DB wrapper (retry + circuit breaker)
+  // doesn't support the array form.
+  await prismaClient.$transaction(async (tx) => {
+    await tx.roomMember.deleteMany({ where: { roomId, userId: memberId } });
     // Let them request access again later instead of being stuck "approved".
-    prismaClient.roomAccessRequest.deleteMany({
+    await tx.roomAccessRequest.deleteMany({
       where: { roomId, requesterId: memberId },
-    }),
-  ]);
+    });
+  });
 
   res.status(200).json(new ApiResponse(200, { userId: memberId }, "Member removed"));
 });
