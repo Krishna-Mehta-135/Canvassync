@@ -15,11 +15,15 @@ type MinimapProps = {
 const WIDTH = 208;
 const HEIGHT = 136;
 const PADDING = 12;
-/** Extra world space kept around the content so the view can drift a little without rescaling. */
-const MARGIN_RATIO = 0.2;
+/** Breathing room around the mapped area, as a share of its size. */
+const MARGIN_RATIO = 0.08;
+/** When the view leaves the mapped area, re-map with this much extra room in the direction of travel. */
+const LOOKAHEAD_RATIO = 0.6;
+/** Re-map when the zoom level changes by more than this factor. */
+const ZOOM_REMAP_FACTOR = 1.25;
 const SHAPES_CHECK_MS = 200;
 
-type Mapping = { minX: number; minY: number; scale: number };
+type Mapping = { minX: number; minY: number; scale: number; /** Camera zoom when mapped. */ zoom: number };
 
 const FALLBACK_COLOR = "#94a3b8";
 
@@ -37,28 +41,61 @@ function signatureOf(shapes: Shape[]) {
   return Math.round(sum * 10);
 }
 
-function computeMapping(shapes: Shape[], view: { x1: number; y1: number; x2: number; y2: number }): Mapping {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
+type WorldRect = { x1: number; y1: number; x2: number; y2: number };
+
+/**
+ * Maps the union of the board content and the current view into the minimap,
+ * so the view rectangle is always drawn at its true size relative to the content.
+ * The mapping is only recomputed when needed (see `needsRemap`), never per frame.
+ */
+function computeMapping(shapes: Shape[], view: WorldRect, lookahead: boolean): Mapping {
+  // Content bounds on their own.
+  let cx1 = Infinity;
+  let cy1 = Infinity;
+  let cx2 = -Infinity;
+  let cy2 = -Infinity;
   for (const shape of shapes) {
     const box = convertToPoints(shape);
-    minX = Math.min(minX, box.x1);
-    minY = Math.min(minY, box.y1);
-    maxX = Math.max(maxX, box.x2);
-    maxY = Math.max(maxY, box.y2);
+    cx1 = Math.min(cx1, box.x1);
+    cy1 = Math.min(cy1, box.y1);
+    cx2 = Math.max(cx2, box.x2);
+    cy2 = Math.max(cy2, box.y2);
   }
-  // Empty board: frame the current view.
-  if (!Number.isFinite(minX)) {
-    minX = view.x1;
-    minY = view.y1;
-    maxX = view.x2;
-    maxY = view.y2;
+  const hasContent = Number.isFinite(cx1);
+
+  // Start from content + view so the view rectangle keeps its true proportions.
+  let minX = hasContent ? Math.min(cx1, view.x1) : view.x1;
+  let minY = hasContent ? Math.min(cy1, view.y1) : view.y1;
+  let maxX = hasContent ? Math.max(cx2, view.x2) : view.x2;
+  let maxY = hasContent ? Math.max(cy2, view.y2) : view.y2;
+
+  // If the screen is much larger than the board (zoomed far out), keep the board
+  // readable and let the view outline run off the edges instead of shrinking it.
+  if (hasContent) {
+    const contentArea = Math.max(1, (cx2 - cx1) * (cy2 - cy1));
+    const unionArea = (maxX - minX) * (maxY - minY);
+    if (unionArea > contentArea * 2) {
+      const padX = Math.max(80, (cx2 - cx1) * 0.45);
+      const padY = Math.max(60, (cy2 - cy1) * 0.3);
+      minX = cx1 - padX;
+      maxX = cx2 + padX;
+      minY = cy1 - padY;
+      maxY = cy2 + padY;
+    }
   }
 
-  const marginX = Math.max(200, (maxX - minX) * MARGIN_RATIO);
-  const marginY = Math.max(140, (maxY - minY) * MARGIN_RATIO);
+  if (lookahead) {
+    // Panning: leave room ahead so the next few frames don't force another re-map.
+    const extraX = (view.x2 - view.x1) * LOOKAHEAD_RATIO;
+    const extraY = (view.y2 - view.y1) * LOOKAHEAD_RATIO;
+    minX = Math.min(minX, view.x1 - extraX);
+    maxX = Math.max(maxX, view.x2 + extraX);
+    minY = Math.min(minY, view.y1 - extraY);
+    maxY = Math.max(maxY, view.y2 + extraY);
+  }
+
+  const marginX = Math.max(40, (maxX - minX) * MARGIN_RATIO);
+  const marginY = Math.max(40, (maxY - minY) * MARGIN_RATIO);
   minX -= marginX;
   maxX += marginX;
   minY -= marginY;
@@ -72,6 +109,7 @@ function computeMapping(shapes: Shape[], view: { x1: number; y1: number; x2: num
     scale,
     minX: minX - (WIDTH / scale - (maxX - minX)) / 2,
     minY: minY - (HEIGHT / scale - (maxY - minY)) / 2,
+    zoom: 0,
   };
 }
 
@@ -190,8 +228,15 @@ export function Minimap({ shapesRef, viewportRef, canvasRef, applyViewport, isDa
       };
     };
 
-    const rebuildLayer = (shapes: Shape[], view: NonNullable<ReturnType<typeof currentView>>) => {
-      mappingRef.current = computeMapping(shapes, view);
+    const rebuildLayer = (
+      shapes: Shape[],
+      view: NonNullable<ReturnType<typeof currentView>>,
+      lookahead: boolean,
+    ) => {
+      mappingRef.current = {
+        ...computeMapping(shapes, view, lookahead),
+        zoom: viewportRef.current?.scale ?? 1,
+      };
       layerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       layerCtx.clearRect(0, 0, WIDTH, HEIGHT);
       drawShapes(layerCtx, shapes, mappingRef.current);
@@ -202,14 +247,40 @@ export function Minimap({ shapesRef, viewportRef, canvasRef, applyViewport, isDa
       const view = currentView();
       if (!view) return;
 
-      // Re-check the shapes a few times per second, not every frame.
-      if (now - lastCheck > SHAPES_CHECK_MS || !mappingRef.current) {
+      const shapes = shapesRef.current ?? [];
+      const existing = mappingRef.current;
+
+      // Shape changes: check a few times per second rather than every frame.
+      let shapesChanged = !existing;
+      if (now - lastCheck > SHAPES_CHECK_MS) {
         lastCheck = now;
-        const shapes = shapesRef.current ?? [];
         const signature = `${signatureOf(shapes)}:${isDark}`;
-        if (signature !== lastSignature || !mappingRef.current) {
+        if (signature !== lastSignature) {
           lastSignature = signature;
-          rebuildLayer(shapes, view);
+          shapesChanged = true;
+        }
+      }
+
+      if (shapesChanged) {
+        rebuildLayer(shapes, view, false);
+      } else if (existing) {
+        // Camera changes only force a re-map when the view leaves the mapped area
+        // or the zoom level changes noticeably; ordinary panning just moves the rectangle.
+        const zoom = viewportRef.current?.scale ?? 1;
+        const zoomRatio = zoom > existing.zoom ? zoom / existing.zoom : existing.zoom / zoom;
+        const mappedX2 = existing.minX + WIDTH / existing.scale;
+        const mappedY2 = existing.minY + HEIGHT / existing.scale;
+        // Only the view centre matters: when the screen is larger than the mapped
+        // area the outline is clipped by design and must not trigger endless re-maps.
+        const centreX = (view.x1 + view.x2) / 2;
+        const centreY = (view.y1 + view.y2) / 2;
+        const outside =
+          centreX < existing.minX ||
+          centreY < existing.minY ||
+          centreX > mappedX2 ||
+          centreY > mappedY2;
+        if (outside || zoomRatio > ZOOM_REMAP_FACTOR) {
+          rebuildLayer(shapes, view, outside);
         }
       }
 
@@ -231,15 +302,23 @@ export function Minimap({ shapesRef, viewportRef, canvasRef, applyViewport, isDa
       ctx.beginPath();
       ctx.rect(1, 1, WIDTH - 2, HEIGHT - 2);
       ctx.clip();
-      // Dim everything outside the view so the visible area stands out.
-      ctx.fillStyle = isDark ? "rgba(2,6,23,0.45)" : "rgba(15,23,42,0.10)";
-      ctx.beginPath();
-      ctx.rect(0, 0, WIDTH, HEIGHT);
-      ctx.rect(rx, ry, rw, rh);
-      ctx.fill("evenodd");
-      ctx.strokeStyle = "#3b82f6";
-      ctx.lineWidth = 1.5;
+      // When the view covers most of the map (everything is on screen) the outline
+      // is drawn lightly; when zoomed in it gets full emphasis and the rest is dimmed.
+      const coverage = (rw * rh) / (WIDTH * HEIGHT);
+      const prominent = coverage < 0.22;
+
+      if (prominent) {
+        ctx.fillStyle = isDark ? "rgba(2,6,23,0.45)" : "rgba(15,23,42,0.10)";
+        ctx.beginPath();
+        ctx.rect(0, 0, WIDTH, HEIGHT);
+        ctx.rect(rx, ry, rw, rh);
+        ctx.fill("evenodd");
+      }
+      ctx.strokeStyle = prominent ? "#3b82f6" : "rgba(96,165,250,0.55)";
+      ctx.lineWidth = prominent ? 1.5 : 1;
+      if (!prominent) ctx.setLineDash([4, 3]);
       ctx.strokeRect(rx + 0.75, ry + 0.75, Math.max(2, rw - 1.5), Math.max(2, rh - 1.5));
+      ctx.setLineDash([]);
       ctx.restore();
     };
 
