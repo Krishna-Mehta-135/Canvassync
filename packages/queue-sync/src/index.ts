@@ -56,9 +56,15 @@ const AiGenerateJobSchema = z.object({
   // Keep in sync with AiGenerateRequestSchema max length in @repo/common.
   prompt: z.string().min(1).max(12000),
   requestedBy: z.string().optional(),
-  mode: z.enum(["generate", "edit", "summarize"]).optional(),
+  mode: z.enum(["generate", "edit", "summarize", "image"]).optional(),
   // Shapes to rewrite in "edit" mode (already validated by the HTTP backend).
   selection: z.array(z.record(z.string(), z.unknown())).max(120).optional(),
+  image: z
+    .object({
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      data: z.string().min(100).max(1_400_000),
+    })
+    .optional(),
   enqueuedAtMs: z.number().int().nonnegative(),
 });
 
@@ -67,8 +73,9 @@ export type AiGenerateJob = {
   roomId: number;
   prompt: string;
   requestedBy?: string;
-  mode?: "generate" | "edit" | "summarize";
+  mode?: "generate" | "edit" | "summarize" | "image";
   selection?: Record<string, unknown>[];
+  image?: { mimeType: "image/jpeg" | "image/png" | "image/webp"; data: string };
   enqueuedAtMs: number;
 };
 

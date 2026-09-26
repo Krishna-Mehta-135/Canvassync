@@ -18,6 +18,7 @@ import { CanvasState, mermaidToShapes, tidyLayout, snapSketches, MermaidParseErr
 import type { Shape, Tool } from "@repo/canvas-engine";
 import { HTTP_BACKEND } from "../../../config";
 import { apiClient } from "../../lib/apiClient";
+import { prepareImageForAi } from "../../lib/imageForAi";
 import { ensureAuthenticated, logoutUser } from "../../lib/auth";
 import { useTheme } from "../../components/ThemeToggle";
 import { useCanvasChat } from "../../../hooks/useCanvasChat";
@@ -791,6 +792,38 @@ function getShapeBounds(shape: Shape) {
   }
 
   return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+}
+
+function translateShapes(shapes: Shape[], dx: number, dy: number): Shape[] {
+  if (dx === 0 && dy === 0) return shapes;
+  return shapes.map((shape): Shape => {
+    switch (shape.type) {
+      case "rect":
+      case "rhombus":
+      case "text":
+        return { ...shape, x: shape.x + dx, y: shape.y + dy };
+      case "circle":
+        return { ...shape, centerX: shape.centerX + dx, centerY: shape.centerY + dy };
+      case "line":
+      case "arrow":
+        return {
+          ...shape,
+          x1: shape.x1 + dx,
+          y1: shape.y1 + dy,
+          x2: shape.x2 + dx,
+          y2: shape.y2 + dy,
+        };
+      case "freehand":
+        return {
+          ...shape,
+          points: shape.points.map((point) => ({
+            ...point,
+            x: point.x + dx,
+            y: point.y + dy,
+          })),
+        };
+    }
+  });
 }
 
 function getBoundsForShapes(shapes: Shape[]) {
@@ -1887,14 +1920,28 @@ export default function CanvasPage() {
       pushToast("success", `✦ AI updated ${themed.length} shapes (Ctrl/Cmd+Z to undo)`);
       return;
     }
-    themed.forEach((shape) => {
+    let toAdd = themed;
+    if (meta?.placeBeside) {
+      // Image imports are drawn in the model's own coordinate frame: move them
+      // to the right of whatever is already on the board.
+      const existingBounds = getBoundsForShapes(canvasState.getShapes());
+      const importedBounds = getBoundsForShapes(themed);
+      if (importedBounds) {
+        const dx = existingBounds
+          ? existingBounds.maxX + 120 - importedBounds.minX
+          : 0;
+        const dy = existingBounds ? existingBounds.minY - importedBounds.minY : 0;
+        toAdd = translateShapes(themed, dx, dy);
+      }
+    }
+    toAdd.forEach((shape) => {
       dispatch(canvasState, {
         type: "ADD_SHAPE",
         payload: shape,
       });
     });
     controlsRef.current?.rerender();
-    const generatedBounds = getBoundsForShapes(themed);
+    const generatedBounds = getBoundsForShapes(toAdd);
     if (generatedBounds) {
       controlsRef.current?.focusViewportToBounds(generatedBounds, {
         padding: 140,
@@ -1924,6 +1971,30 @@ export default function CanvasPage() {
     onError: handleAiError,
     onSummary: setSummaryText,
   });
+
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleImageChosen = async (file: File | undefined) => {
+    if (!file || !canvasState || ai.isGenerating) return;
+    if (!file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) {
+      pushToast("error", "Choose an image file under 15 MB.");
+      return;
+    }
+    try {
+      const image = await prepareImageForAi(file);
+      pushToast("info", "✦ Reading the image…");
+      void ai.generate(
+        "Recreate this image as shapes",
+        `Recreate image: ${file.name}`,
+        { mode: "image", image },
+      );
+    } catch (error) {
+      pushToast(
+        "error",
+        error instanceof Error ? error.message : "Could not read that image.",
+      );
+    }
+  };
 
   const handleSummarizeBoard = () => {
     if (!canvasState || ai.isGenerating) return;
@@ -2904,6 +2975,7 @@ export default function CanvasPage() {
                     ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
                     ["Tidy layout (left-right)", "Auto-arrange", () => handleTidyLayout("LR")],
                     ["Summarize board ✦", "AI notes", () => handleSummarizeBoard()],
+                    ["Image → shapes ✦", "Photo/screenshot", () => imageInputRef.current?.click()],
                   ] as const
                 ).map(([label, hint, action]) => (
                   <button
@@ -3816,6 +3888,18 @@ export default function CanvasPage() {
           onError={(message) => pushToast("error", message)}
         />
       )}
+
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        aria-label="Choose an image to convert into shapes"
+        onChange={(event) => {
+          void handleImageChosen(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
 
       {summaryText && (
         <SummaryModal

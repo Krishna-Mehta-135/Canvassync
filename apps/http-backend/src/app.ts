@@ -53,7 +53,8 @@ app.use(
   }),
 );
 app.use(rateLimitMiddleware);
-app.use(express.json());
+// AI image jobs carry a downscaled base64 image (<= ~1.4 MB), so raise the default 100 kb cap.
+app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
 
 // Internal endpoint for AI worker → HTTP backend callbacks.

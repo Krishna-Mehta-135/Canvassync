@@ -13,12 +13,19 @@ export interface ChatMessage {
 /** Present for edit-mode results: the shapes the AI output replaces. */
 export interface AiResultMeta {
   replaceIds?: string[];
+  /** Generated from an image: place beside existing content, not on top of it. */
+  placeBeside?: boolean;
 }
 
-export interface AiGenerateOptions {
-  mode: "edit" | "summarize";
-  selection: Array<Record<string, unknown> & { id: string }>;
-}
+export type AiGenerateOptions =
+  | {
+      mode: "edit" | "summarize";
+      selection: Array<Record<string, unknown> & { id: string }>;
+    }
+  | {
+      mode: "image";
+      image: { mimeType: "image/jpeg" | "image/png" | "image/webp"; data: string };
+    };
 
 interface UseAiGenerationOptions {
   roomId: number | null;
@@ -56,6 +63,7 @@ export function useAiGeneration({
   const [isGenerating, setIsGenerating] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editTargetsRef = useRef<Map<string, string[]>>(new Map());
+  const imageJobsRef = useRef<Set<string>>(new Set());
 
   // Load messages from localStorage on mount
   useEffect(() => {
@@ -136,6 +144,7 @@ export function useAiGeneration({
           const shapes = d.shapes ?? [];
           const replaceIds = editTargetsRef.current.get(jobId);
           editTargetsRef.current.delete(jobId);
+          const fromImage = imageJobsRef.current.delete(jobId);
           patchMsg(aiId, {
             isGenerating: false,
             shapeCount: shapes.length,
@@ -143,7 +152,14 @@ export function useAiGeneration({
               ? `Done! Updated your selection (${shapes.length} shapes).`
               : `Done! Added ${shapes.length} shapes to your canvas.`,
           });
-          onShapesGenerated(shapes, replaceIds ? { replaceIds } : undefined);
+          onShapesGenerated(
+            shapes,
+            replaceIds
+              ? { replaceIds }
+              : fromImage
+                ? { placeBeside: true }
+                : undefined,
+          );
           setIsGenerating(false);
         } else if (d?.status === "error") {
           const msg = d.errorMessage ?? "Generation failed";
@@ -195,9 +211,11 @@ export function useAiGeneration({
     try {
       const res = await apiClient.post(
         `${httpBackend}/room/${roomId}/ai/generate`,
-        options
-          ? { prompt, mode: options.mode, selection: options.selection }
-          : { prompt },
+        !options
+          ? { prompt }
+          : options.mode === "image"
+            ? { prompt, mode: "image", image: options.image }
+            : { prompt, mode: options.mode, selection: options.selection },
       );
       const jobId = (res.data as { data?: { jobId?: string } })?.data?.jobId;
       if (!jobId) throw new Error("No job ID");
@@ -206,6 +224,8 @@ export function useAiGeneration({
           jobId,
           options.selection.map((shape) => shape.id),
         );
+      } else if (options?.mode === "image") {
+        imageJobsRef.current.add(jobId);
       }
       poll(jobId, aid);
     } catch (error) {

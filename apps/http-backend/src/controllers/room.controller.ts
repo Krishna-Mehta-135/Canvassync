@@ -1228,7 +1228,7 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
     );
   }
 
-  const { prompt, mode, selection } = bodyValidation.data;
+  const { prompt, mode, selection, image } = bodyValidation.data;
   const jobId = randomUUID();
 
   const initialEntry: AiJobEntry = {
@@ -1251,6 +1251,7 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
       prompt,
       mode,
       selection: selection as Record<string, unknown>[] | undefined,
+      image,
       requestedBy: userId,
       enqueuedAtMs: Date.now(),
     });

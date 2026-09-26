@@ -118,6 +118,16 @@ Rules:
 - When asked to translate/rewrite/shorten labels, only change the "text" values.
 - Valid JSON only: double-quoted keys, no trailing commas, start with '[' and end with ']'.`;
 
+// Image mode: recreate a photo/screenshot of a diagram, whiteboard or UI as shapes.
+const IMAGE_PROMPT = `Recreate the attached image as editable whiteboard shapes.
+- Reproduce the structure you see: boxes/nodes, arrows/lines between them, and every readable text label.
+- Map the picture onto the canvas: x 100-900, y 80-680, preserving relative positions and proportions.
+- Use rect for boxes/panels/services, circle for people/databases/round nodes, rhombus for decisions, arrow for directed connections, line for plain lines.
+- Put each label as a text shape inside or next to its node. Copy the wording faithfully.
+- For UI screenshots, draw the main containers, buttons and text blocks as simplified boxes with labels.
+- If the image has no diagram, illustrate its main subject with a small number of simple shapes plus a title.
+Return ONLY the JSON array of shapes.`;
+
 // Summarize mode: turn the text on a board into notes for humans (plain markdown).
 const SUMMARY_SYSTEM_INSTRUCTION = `You summarize the contents of a collaborative whiteboard for the people who used it.
 You receive an OUTLINE: the text labels found on the board (top-to-bottom, left-to-right) plus counts of shapes and connectors.
@@ -503,6 +513,47 @@ function buildAttemptPrompt(
 // ---------------------------------------------------------------------------
 // Call Gemini and parse the response into validated, complete shape objects.
 // ---------------------------------------------------------------------------
+async function generateShapesFromImage(
+  image: NonNullable<AiGenerateJob["image"]>,
+  note: string,
+): Promise<unknown[]> {
+  const models =
+    MODEL_CANDIDATES.length > 0 ? MODEL_CANDIDATES : ["gemini-flash-latest"];
+  const userNote = note.trim() ? `\nUser note: ${note.trim().slice(0, 300)}` : "";
+  let lastError = "Unknown image failure";
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (const modelName of models) {
+      try {
+        const result = await getModel(modelName).generateContent([
+          { text: IMAGE_PROMPT + userNote },
+          { inlineData: { mimeType: image.mimeType, data: image.data } },
+        ]);
+        const rawText = result.response.text();
+        let jsonStr: string;
+        try {
+          jsonStr = extractJsonArrayString(rawText);
+        } catch (extractErr) {
+          if (result.response.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+            jsonStr = tryRepairTruncatedJson(rawText);
+          } else {
+            throw extractErr;
+          }
+        }
+        const shapes = validateAndNormalizeShapes(JSON.parse(jsonStr));
+        if (shapes.length === 0) throw new Error("No shapes were recognized in the image");
+        return shapes;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (isRateLimitError(lastError)) {
+          lastError = summarizeQuotaError(lastError).userMessage;
+        }
+      }
+    }
+  }
+  throw new Error(`AI image import failed: ${lastError}`);
+}
+
 async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
   let lastError = "Unknown generation failure";
   let previousIssue: string | undefined;
@@ -738,6 +789,13 @@ async function handleAiJob(job: AiGenerateJob): Promise<void> {
       const summary = await summarizeBoard(job.selection);
       console.log(`[AI Worker] Job ${job.jobId} done — summary ${summary.length} chars`);
       await postResult(job.jobId, [], undefined, summary);
+      return;
+    }
+
+    if (job.mode === "image" && job.image) {
+      const imageShapes = await generateShapesFromImage(job.image, job.prompt);
+      console.log(`[AI Worker] Job ${job.jobId} done — image → ${imageShapes.length} shapes`);
+      await postResult(job.jobId, imageShapes);
       return;
     }
 

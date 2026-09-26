@@ -85,13 +85,25 @@ export const RoomAccessRequestDecisionSchema = z.object({
 });
 
 // AI canvas generation
+export const AiImageInputSchema = z.object({
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  // Base64 payload (no data: prefix). The client downscales before sending.
+  data: z.string().min(100).max(1_400_000),
+});
+
 export const AiGenerateRequestSchema = z
   .object({
     prompt: z.string().trim().min(1).max(12000), // extended to allow canvas context JSON
     // "edit" rewrites `selection` according to `prompt` instead of adding new shapes;
     // "summarize" turns `selection` (the board's shapes) into a text summary.
-    mode: z.enum(["generate", "edit", "summarize"]).optional(),
+    mode: z.enum(["generate", "edit", "summarize", "image"]).optional(),
     selection: z.array(CanvasShapeSchema).max(120).optional(),
+    // "image": a downscaled photo/screenshot to recreate as editable shapes.
+    image: AiImageInputSchema.optional(),
+  })
+  .refine((value) => value.mode !== "image" || Boolean(value.image), {
+    message: "image mode requires an image",
+    path: ["image"],
   })
   .refine(
     (value) =>
