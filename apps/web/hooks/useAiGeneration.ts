@@ -16,7 +16,7 @@ export interface AiResultMeta {
 }
 
 export interface AiGenerateOptions {
-  mode: "edit";
+  mode: "edit" | "summarize";
   selection: Array<Record<string, unknown> & { id: string }>;
 }
 
@@ -29,6 +29,8 @@ interface UseAiGenerationOptions {
   };
   onShapesGenerated: (shapes: unknown[], meta?: AiResultMeta) => void;
   onError: (message: string) => void;
+  /** Called with markdown when a "summarize" job finishes. */
+  onSummary?: (summary: string) => void;
 }
 
 const POLL_INTERVAL_MS = 1500;
@@ -48,6 +50,7 @@ export function useAiGeneration({
   apiClient,
   onShapesGenerated,
   onError,
+  onSummary,
 }: UseAiGenerationOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -120,11 +123,16 @@ export function useAiGeneration({
             data?: {
               status?: string;
               shapes?: unknown[];
+              summary?: string | null;
               errorMessage?: string;
             };
           }
         )?.data;
-        if (d?.status === "done") {
+        if (d?.status === "done" && typeof d.summary === "string") {
+          patchMsg(aiId, { isGenerating: false, text: "Summary ready." });
+          onSummary?.(d.summary);
+          setIsGenerating(false);
+        } else if (d?.status === "done") {
           const shapes = d.shapes ?? [];
           const replaceIds = editTargetsRef.current.get(jobId);
           editTargetsRef.current.delete(jobId);
@@ -154,7 +162,7 @@ export function useAiGeneration({
         setIsGenerating(false);
       }
     }, POLL_INTERVAL_MS);
-  }, [apiClient, httpBackend, onError, onShapesGenerated, patchMsg, roomId]);
+  }, [apiClient, httpBackend, onError, onShapesGenerated, onSummary, patchMsg, roomId]);
 
   const generate = useCallback(async (
     prompt: string,
@@ -173,7 +181,12 @@ export function useAiGeneration({
     addMsg({
       id: aid,
       role: "ai",
-      text: options ? "Editing…" : "Generating…",
+      text:
+        options?.mode === "summarize"
+          ? "Summarizing…"
+          : options
+            ? "Editing…"
+            : "Generating…",
       isGenerating: true,
       time: nowTime(),
     });
@@ -183,12 +196,12 @@ export function useAiGeneration({
       const res = await apiClient.post(
         `${httpBackend}/room/${roomId}/ai/generate`,
         options
-          ? { prompt, mode: "edit", selection: options.selection }
+          ? { prompt, mode: options.mode, selection: options.selection }
           : { prompt },
       );
       const jobId = (res.data as { data?: { jobId?: string } })?.data?.jobId;
       if (!jobId) throw new Error("No job ID");
-      if (options) {
+      if (options?.mode === "edit") {
         editTargetsRef.current.set(
           jobId,
           options.selection.map((shape) => shape.id),

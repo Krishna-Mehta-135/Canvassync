@@ -88,14 +88,20 @@ export const RoomAccessRequestDecisionSchema = z.object({
 export const AiGenerateRequestSchema = z
   .object({
     prompt: z.string().trim().min(1).max(12000), // extended to allow canvas context JSON
-    // "edit" rewrites `selection` according to `prompt` instead of adding new shapes.
-    mode: z.enum(["generate", "edit"]).optional(),
+    // "edit" rewrites `selection` according to `prompt` instead of adding new shapes;
+    // "summarize" turns `selection` (the board's shapes) into a text summary.
+    mode: z.enum(["generate", "edit", "summarize"]).optional(),
     selection: z.array(CanvasShapeSchema).max(120).optional(),
   })
-  .refine((value) => value.mode !== "edit" || (value.selection?.length ?? 0) > 0, {
-    message: "edit mode requires a non-empty selection",
-    path: ["selection"],
-  });
+  .refine(
+    (value) =>
+      (value.mode !== "edit" && value.mode !== "summarize") ||
+      (value.selection?.length ?? 0) > 0,
+    {
+      message: "edit and summarize modes require a non-empty selection",
+      path: ["selection"],
+    },
+  );
 
 export const AiGenerateJobIdParamSchema = z.object({
   jobId: z.string().min(8).max(128),

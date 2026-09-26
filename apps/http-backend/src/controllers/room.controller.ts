@@ -1193,6 +1193,7 @@ interface AiJobEntry {
   status: AiJobStatus;
   roomId: number;
   shapes?: unknown[];
+  summary?: string;
   errorMessage?: string;
   createdAt: number;
 }
@@ -1316,6 +1317,7 @@ const getAiGenerateStatus = asyncHandler(async (req, res) => {
         jobId,
         status: entry.status,
         shapes: entry.shapes ?? null,
+        summary: entry.summary ?? null,
         errorMessage: entry.errorMessage ?? null,
       },
       "Job status fetched",
@@ -1330,9 +1332,10 @@ const receiveAiResult = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Forbidden");
   }
 
-  const { jobId, shapes, errorMessage } = req.body as {
+  const { jobId, shapes, summary, errorMessage } = req.body as {
     jobId?: string;
     shapes?: unknown[];
+    summary?: string;
     errorMessage?: string;
   };
 
@@ -1362,6 +1365,7 @@ const receiveAiResult = asyncHandler(async (req, res) => {
       ...entry,
       status: "done",
       shapes: shapes ?? [],
+      ...(typeof summary === "string" ? { summary } : {}),
     };
     await redisClient.set(
       getAiJobKey(jobId),

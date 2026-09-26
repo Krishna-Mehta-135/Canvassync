@@ -28,6 +28,7 @@ import { LiveCollabLayer } from "../../components/LiveCollabLayer";
 import { HistoryPanel } from "../../components/HistoryPanel";
 import { AiEditBar } from "../../components/AiEditBar";
 import { MermaidModal } from "../../components/MermaidModal";
+import { SummaryModal } from "../../components/SummaryModal";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1128,6 +1129,7 @@ export default function CanvasPage() {
   const pendingViewportForPersistRef = useRef<StoredViewport | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [summaryText, setSummaryText] = useState<string | null>(null);
   const [mermaidMode, setMermaidMode] = useState<"import" | "export" | null>(null);
   const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
   const [joinCanvasInput, setJoinCanvasInput] = useState("");
@@ -1920,7 +1922,68 @@ export default function CanvasPage() {
     apiClient,
     onShapesGenerated: handleAiShapesGenerated,
     onError: handleAiError,
+    onSummary: setSummaryText,
   });
+
+  const handleSummarizeBoard = () => {
+    if (!canvasState || ai.isGenerating) return;
+    // Text carries the meaning; cap the payload the API accepts.
+    const shapes = canvasState.getShapes();
+    const texts = shapes.filter((shape) => shape.type === "text").slice(0, 100);
+    const others = shapes.filter((shape) => shape.type !== "text").slice(0, 20);
+    if (texts.length === 0) {
+      pushToast("error", "Add some text labels to the board first — nothing to summarize.");
+      return;
+    }
+    void ai.generate("Summarize this board", "Summarize this board", {
+      mode: "summarize",
+      selection: [...texts, ...others] as unknown as Array<
+        Record<string, unknown> & { id: string }
+      >,
+    });
+    pushToast("info", "✦ Summarizing the board…");
+  };
+
+  const handleInsertSummary = (markdown: string) => {
+    if (!canvasState) return;
+    // Park the note to the right of everything already on the board.
+    const existing = canvasState.getShapes();
+    const bounds = getBoundsForShapes(existing);
+    const origin = bounds
+      ? { x: bounds.maxX + 80, y: bounds.minY }
+      : { x: 0, y: 0 };
+
+    const plain = markdown
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/^## /gm, "")
+      .replace(/^- \[ \] /gm, "☐ ")
+      .replace(/^- \[x\] /gim, "☑ ")
+      .replace(/^[-*] /gm, "• ");
+    const width = 380;
+    const lineCount = plain
+      .split("\n")
+      .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 42)), 0);
+    const height = Math.min(1400, Math.max(40, lineCount * 20 + 8));
+
+    canvasState.setShapes([
+      ...canvasState.getShapes(),
+      {
+        id: crypto.randomUUID(),
+        type: "text",
+        x: origin.x,
+        y: origin.y,
+        width,
+        height,
+        text: plain,
+        fontSize: 16,
+        roughness: 1,
+        strokeStyle: "solid",
+      } as Shape,
+    ]);
+    controlsRef.current?.rerender();
+    setSummaryText(null);
+    pushToast("success", "Summary added to the canvas.");
+  };
 
   useEffect(() => {
     if (syncStatusTimerRef.current) {
@@ -2840,6 +2903,7 @@ export default function CanvasPage() {
                     ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
                     ["Tidy layout (top-down)", "Auto-arrange", () => handleTidyLayout("TD")],
                     ["Tidy layout (left-right)", "Auto-arrange", () => handleTidyLayout("LR")],
+                    ["Summarize board ✦", "AI notes", () => handleSummarizeBoard()],
                   ] as const
                 ).map(([label, hint, action]) => (
                   <button
@@ -3750,6 +3814,15 @@ export default function CanvasPage() {
           onClose={() => setShowHistory(false)}
           onRestored={() => pushToast("success", "Version restored.")}
           onError={(message) => pushToast("error", message)}
+        />
+      )}
+
+      {summaryText && (
+        <SummaryModal
+          summary={summaryText}
+          isDark={isDark}
+          onClose={() => setSummaryText(null)}
+          onInsert={handleInsertSummary}
         />
       )}
 

@@ -118,6 +118,18 @@ Rules:
 - When asked to translate/rewrite/shorten labels, only change the "text" values.
 - Valid JSON only: double-quoted keys, no trailing commas, start with '[' and end with ']'.`;
 
+// Summarize mode: turn the text on a board into notes for humans (plain markdown).
+const SUMMARY_SYSTEM_INSTRUCTION = `You summarize the contents of a collaborative whiteboard for the people who used it.
+You receive an OUTLINE: the text labels found on the board (top-to-bottom, left-to-right) plus counts of shapes and connectors.
+Reply in concise GitHub-flavored markdown with exactly these sections:
+## Summary
+Two to four sentences on what the board is about.
+## Key points
+Bullet list of the main ideas, components or decisions.
+## Action items
+A checkbox list ("- [ ] ...") of concrete next steps that are clearly implied. If none are implied, write "- [ ] None identified".
+Rules: never invent facts that are not in the outline; keep every section short; no preamble.`;
+
 // ---------------------------------------------------------------------------
 // Build the Gemini model using getGenerativeModel
 // ---------------------------------------------------------------------------
@@ -128,8 +140,10 @@ const modelCache = new Map<
   ReturnType<typeof genAI.getGenerativeModel>
 >();
 
-function getModel(modelName: string, edit = false) {
-  const cacheKey = `${edit ? "edit" : "gen"}:${modelName}`;
+type ModelKind = "generate" | "edit" | "summarize";
+
+function getModel(modelName: string, kind: ModelKind = "generate") {
+  const cacheKey = `${kind}:${modelName}`;
   const cached = modelCache.get(cacheKey);
   if (cached) {
     return cached;
@@ -137,12 +151,20 @@ function getModel(modelName: string, edit = false) {
 
   const model = genAI.getGenerativeModel({
     model: modelName,
-    systemInstruction: edit ? EDIT_SYSTEM_INSTRUCTION : SYSTEM_INSTRUCTION,
-    generationConfig: {
-      temperature: 0.3,
-      maxOutputTokens: 12288,
-      responseMimeType: "application/json",
-    },
+    systemInstruction:
+      kind === "edit"
+        ? EDIT_SYSTEM_INSTRUCTION
+        : kind === "summarize"
+          ? SUMMARY_SYSTEM_INSTRUCTION
+          : SYSTEM_INSTRUCTION,
+    generationConfig:
+      kind === "summarize"
+        ? { temperature: 0.3, maxOutputTokens: 2048 }
+        : {
+            temperature: 0.3,
+            maxOutputTokens: 12288,
+            responseMimeType: "application/json",
+          },
   });
 
   modelCache.set(cacheKey, model);
@@ -608,7 +630,7 @@ async function editShapesFromPrompt(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     for (const modelName of models) {
       try {
-        const result = await getModel(modelName, true).generateContent(prompt);
+        const result = await getModel(modelName, "edit").generateContent(prompt);
         const rawText = result.response.text();
         const parsed = JSON.parse(extractJsonArrayString(rawText));
         const shapes = validateAndNormalizeShapes(parsed);
@@ -629,16 +651,70 @@ async function editShapesFromPrompt(
 }
 
 // ---------------------------------------------------------------------------
+// Summarize mode: outline the board's text and ask for summary + action items.
+// ---------------------------------------------------------------------------
+function buildBoardOutline(selection: unknown[]): string {
+  const records = selection as Array<Record<string, unknown>>;
+  const texts = records
+    .filter((shape) => shape.type === "text" && typeof shape.text === "string")
+    .map((shape) => ({
+      text: String(shape.text).trim(),
+      x: Number(shape.x) || 0,
+      y: Number(shape.y) || 0,
+    }))
+    .filter((item) => item.text.length > 0)
+    // Reading order: rows of ~80px, then left to right.
+    .sort((a, b) => Math.round(a.y / 80) - Math.round(b.y / 80) || a.x - b.x);
+
+  const count = (types: string[]) =>
+    records.filter((shape) => types.includes(String(shape.type))).length;
+
+  return [
+    `Shapes: ${count(["rect", "circle", "rhombus"])} boxes, ${count(["arrow", "line"])} connectors, ${count(["freehand"])} drawings.`,
+    "Text labels:",
+    ...texts.map((item) => `- ${item.text}`),
+  ].join("\n");
+}
+
+async function summarizeBoard(selection: unknown[]): Promise<string> {
+  const models =
+    MODEL_CANDIDATES.length > 0 ? MODEL_CANDIDATES : ["gemini-flash-latest"];
+  const outline = buildBoardOutline(selection);
+  if (!outline.includes("\n- ")) {
+    return "## Summary\nThis board has no text yet, so there is nothing to summarize. Add labels or notes and try again.";
+  }
+
+  let lastError = "Unknown summary failure";
+  for (const modelName of models) {
+    try {
+      const result = await getModel(modelName, "summarize").generateContent(
+        `OUTLINE:\n${outline}`,
+      );
+      const text = result.response.text().trim();
+      if (text) return text;
+      lastError = "Empty response";
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      if (isRateLimitError(lastError)) {
+        lastError = summarizeQuotaError(lastError).userMessage;
+      }
+    }
+  }
+  throw new Error(`AI summary failed: ${lastError}`);
+}
+
+// ---------------------------------------------------------------------------
 // Post result back to HTTP backend
 // ---------------------------------------------------------------------------
 async function postResult(
   jobId: string,
   shapes?: unknown[],
   errorMessage?: string,
+  summary?: string,
 ) {
   await axios.post(
     `${HTTP_BACKEND_INTERNAL_URL}/internal/ai/result`,
-    { jobId, shapes, errorMessage },
+    { jobId, shapes, summary, errorMessage },
     {
       headers: {
         "x-internal-secret": INTERNAL_SECRET,
@@ -658,6 +734,13 @@ async function handleAiJob(job: AiGenerateJob): Promise<void> {
   );
 
   try {
+    if (job.mode === "summarize" && job.selection && job.selection.length > 0) {
+      const summary = await summarizeBoard(job.selection);
+      console.log(`[AI Worker] Job ${job.jobId} done — summary ${summary.length} chars`);
+      await postResult(job.jobId, [], undefined, summary);
+      return;
+    }
+
     const shapes =
       job.mode === "edit" && job.selection && job.selection.length > 0
         ? await editShapesFromPrompt(job.prompt, job.selection)
