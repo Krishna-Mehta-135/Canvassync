@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { GlobalCursor } from "./components/GlobalCursor";
 import { ThemeProvider } from "./components/ThemeProvider";
@@ -20,6 +20,10 @@ export const metadata: Metadata = {
   icons: {
     icon: "/logo-canvasio.svg",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0b1020",
 };
 
 export default function RootLayout({
