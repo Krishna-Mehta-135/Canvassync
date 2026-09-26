@@ -106,6 +106,15 @@ export function LiveCollabLayer({
     setFollowId(id);
   }, []);
 
+  /** Leaves follow mode; an auto-followed presenter isn't re-followed until they restart. */
+  const breakFollow = useCallback(() => {
+    if (followIdRef.current === null) return;
+    if (autoFollowedRef.current) {
+      dismissedPresenterRef.current = followIdRef.current;
+    }
+    setFollow(null);
+  }, [setFollow]);
+
   const namesById = useMemo(() => {
     const map = new Map<string, string>();
     for (const presence of presenceState.presences) {
@@ -252,14 +261,6 @@ export function LiveCollabLayer({
     };
 
     // Any manual interaction breaks out of follow mode.
-    const breakFollow = () => {
-      if (followIdRef.current === null) return;
-      if (autoFollowedRef.current) {
-        dismissedPresenterRef.current = followIdRef.current;
-      }
-      setFollow(null);
-    };
-
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerdown", breakFollow, true);
     canvas.addEventListener("wheel", breakFollow, { capture: true, passive: true });
@@ -268,7 +269,7 @@ export function LiveCollabLayer({
       canvas.removeEventListener("pointerdown", breakFollow, true);
       canvas.removeEventListener("wheel", breakFollow, true);
     };
-  }, [canvasRef, toWorld, sendEphemeral, setFollow]);
+  }, [canvasRef, toWorld, sendEphemeral, breakFollow]);
 
   // ── Viewport broadcast (for followers / presenting) ─────────────────────
   useEffect(() => {
@@ -470,11 +471,11 @@ export function LiveCollabLayer({
   useEffect(() => {
     if (!followId) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFollow(null);
+      if (event.key === "Escape") breakFollow();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [followId, setFollow]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [followId, breakFollow]);
 
   const chipBase = isDark
     ? "border-white/15 bg-[#171717]/90 text-white/90"
@@ -577,11 +578,11 @@ export function LiveCollabLayer({
         </div>
       )}
 
-      <div className="pointer-events-auto absolute bottom-24 right-4 flex flex-col items-end gap-2 sm:bottom-6">
+      <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
         {followId && (
           <button
             type="button"
-            onClick={() => setFollow(null)}
+            onClick={breakFollow}
             className="rounded-full px-3 py-1.5 text-xs font-semibold text-white shadow-lg"
             style={{ background: getPresenceColor(followId) }}
           >
@@ -590,7 +591,7 @@ export function LiveCollabLayer({
         )}
 
         {remoteUsers.length > 0 && (
-          <div className="flex max-w-[70vw] flex-wrap justify-end gap-1.5">
+          <div className="flex max-w-[70vw] flex-wrap justify-center gap-1.5">
             {remoteUsers.map((user) => {
               const active = followId === user.userId;
               return (
@@ -599,8 +600,12 @@ export function LiveCollabLayer({
                   type="button"
                   title={active ? "Stop following" : `Follow ${user.userName}`}
                   onClick={() => {
+                    if (active) {
+                      breakFollow();
+                      return;
+                    }
                     dismissedPresenterRef.current = null;
-                    setFollow(active ? null : user.userId);
+                    setFollow(user.userId);
                   }}
                   className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium shadow ${chipBase}`}
                 >
