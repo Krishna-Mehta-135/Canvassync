@@ -355,7 +355,7 @@ export function HistoryPanel({
                 disabled={index === 0}
                 className="rounded-lg border border-current/20 px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                ← Prev
+                Prev
               </button>
               <button
                 type="button"
@@ -365,7 +365,7 @@ export function HistoryPanel({
                 }}
                 className="rounded-lg border border-current/20 px-3 py-1.5 text-xs"
               >
-                {playing ? "Pause" : "▶ Play timelapse"}
+                {playing ? "Pause" : "Play timelapse"}
               </button>
               <button
                 type="button"
@@ -373,7 +373,7 @@ export function HistoryPanel({
                 disabled={index >= liveIndex}
                 className="rounded-lg border border-current/20 px-3 py-1.5 text-xs disabled:opacity-40"
               >
-                Next →
+                Next
               </button>
               <button
                 type="button"
@@ -382,7 +382,7 @@ export function HistoryPanel({
                 className="rounded-lg border border-current/20 px-3 py-1.5 text-xs disabled:opacity-60"
                 title="Download the whole history as a short WebM video"
               >
-                {videoProgress ?? "⬇ Export video"}
+                {videoProgress ?? "Export video"}
               </button>
               <button
                 type="button"

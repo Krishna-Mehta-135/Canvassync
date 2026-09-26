@@ -1,6 +1,26 @@
 "use client";
 
+import {
+  Brain,
+  GitBranch,
+  Route,
+  StickyNote,
+  Target,
+  Repeat,
+  Columns3,
+  type LucideIcon,
+} from "lucide-react";
 import { TEMPLATES, type TemplateId } from "@repo/canvas-engine";
+
+const ICONS: Record<TemplateId, LucideIcon> = {
+  sticky: StickyNote,
+  kanban: Columns3,
+  retro: Repeat,
+  swot: Target,
+  mindmap: Brain,
+  journey: Route,
+  flowchart: GitBranch,
+};
 
 type TemplatesModalProps = {
   isDark: boolean;
@@ -45,8 +65,11 @@ export function TemplatesModal({ isDark, onPick, onClose }: TemplatesModalProps)
               onClick={() => onPick(template.id)}
               className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${card}`}
             >
-              <span className="text-2xl" aria-hidden>
-                {template.emoji}
+              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-500">
+                {(() => {
+                  const Icon = ICONS[template.id];
+                  return <Icon className="h-5 w-5" aria-hidden />;
+                })()}
               </span>
               <span>
                 <span className="block text-sm font-semibold">{template.name}</span>

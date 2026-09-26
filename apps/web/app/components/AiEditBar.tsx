@@ -1,5 +1,7 @@
 "use client";
 
+import { Shapes, Sparkles } from "lucide-react";
+
 import { useEffect, useRef, useState } from "react";
 
 type AiEditBarProps = {
@@ -73,7 +75,7 @@ export function AiEditBar({
               className={`flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold shadow-xl transition hover:brightness-110 ${surface}`}
               title="Replace rough strokes with clean rectangles, ellipses, diamonds, lines and arrows"
             >
-              <span aria-hidden>⬚</span>
+              <Shapes className="h-3.5 w-3.5" aria-hidden />
               Clean up {sketchCount === 1 ? "sketch" : `${sketchCount} sketches`}
             </button>
           )}
@@ -83,7 +85,7 @@ export function AiEditBar({
             disabled={isGenerating}
             className="flex items-center gap-2 rounded-full bg-linear-to-r from-violet-600 to-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xl transition hover:brightness-110 disabled:opacity-60"
           >
-            <span aria-hidden>✦</span>
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
             {isGenerating
               ? "AI is editing…"
               : `Edit ${selectedCount} selected with AI`}

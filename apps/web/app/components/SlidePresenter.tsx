@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
 import { useEffect, useState } from "react";
 import type { Slide } from "./SlidesModal";
 
@@ -68,7 +70,7 @@ export function SlidePresenter({ slides, startIndex, isDark, goTo, onExit }: Sli
         className={`pointer-events-auto flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 shadow-2xl backdrop-blur-xl ${surface}`}
       >
         <button type="button" className={button} disabled={index === 0} onClick={() => setIndex(index - 1)} aria-label="Previous slide">
-          ‹
+          <ChevronLeft className="h-5 w-5" aria-hidden />
         </button>
         <div className="min-w-0 px-2 text-center">
           <div className="truncate text-sm font-semibold">{slide.title}</div>
@@ -83,7 +85,7 @@ export function SlidePresenter({ slides, startIndex, isDark, goTo, onExit }: Sli
           onClick={() => setIndex(index + 1)}
           aria-label="Next slide"
         >
-          ›
+          <ChevronRight className="h-5 w-5" aria-hidden />
         </button>
         <button
           type="button"

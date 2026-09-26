@@ -1,5 +1,16 @@
 "use client";
 
+import {
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyStart,
+  AlignHorizontalSpaceBetween,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
+  AlignVerticalSpaceBetween,
+  type LucideIcon,
+} from "lucide-react";
 import type { AlignMode, DistributeAxis } from "@repo/canvas-engine";
 
 type ArrangeBarProps = {
@@ -9,13 +20,13 @@ type ArrangeBarProps = {
   onDistribute: (axis: DistributeAxis) => void;
 };
 
-const ALIGN_BUTTONS: Array<{ mode: AlignMode; label: string; glyph: string }> = [
-  { mode: "left", label: "Align left", glyph: "⇤" },
-  { mode: "hcenter", label: "Align horizontal centres", glyph: "↔" },
-  { mode: "right", label: "Align right", glyph: "⇥" },
-  { mode: "top", label: "Align top", glyph: "⤒" },
-  { mode: "vcenter", label: "Align vertical centres", glyph: "↕" },
-  { mode: "bottom", label: "Align bottom", glyph: "⤓" },
+const ALIGN_BUTTONS: Array<{ mode: AlignMode; label: string; Icon: LucideIcon }> = [
+  { mode: "left", label: "Align left", Icon: AlignHorizontalJustifyStart },
+  { mode: "hcenter", label: "Align horizontal centres", Icon: AlignHorizontalJustifyCenter },
+  { mode: "right", label: "Align right", Icon: AlignHorizontalJustifyEnd },
+  { mode: "top", label: "Align top", Icon: AlignVerticalJustifyStart },
+  { mode: "vcenter", label: "Align vertical centres", Icon: AlignVerticalJustifyCenter },
+  { mode: "bottom", label: "Align bottom", Icon: AlignVerticalJustifyEnd },
 ];
 
 /** Align / distribute controls, shown while two or more shapes are selected. */
@@ -43,7 +54,7 @@ export function ArrangeBar({ selectedCount, isDark, onAlign, onDistribute }: Arr
           onClick={() => onAlign(item.mode)}
           className={button}
         >
-          {item.glyph}
+          <item.Icon className="h-4 w-4" aria-hidden />
         </button>
       ))}
       <span className="mx-1 h-5 w-px bg-current opacity-20" />
@@ -55,7 +66,7 @@ export function ArrangeBar({ selectedCount, isDark, onAlign, onDistribute }: Arr
         onClick={() => onDistribute("horizontal")}
         className={button}
       >
-        ⋯
+        <AlignHorizontalSpaceBetween className="h-4 w-4" aria-hidden />
       </button>
       <button
         type="button"
@@ -63,9 +74,9 @@ export function ArrangeBar({ selectedCount, isDark, onAlign, onDistribute }: Arr
         aria-label="Distribute vertically"
         disabled={selectedCount < 3}
         onClick={() => onDistribute("vertical")}
-        className={`${button} rotate-90`}
+        className={button}
       >
-        ⋯
+        <AlignVerticalSpaceBetween className="h-4 w-4" aria-hidden />
       </button>
     </div>
   );

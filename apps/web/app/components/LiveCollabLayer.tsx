@@ -1,5 +1,7 @@
 "use client";
 
+import { Eye, Headphones, Mic, MicOff, Timer } from "lucide-react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EphemeralEvent, RoomPresenceState } from "@repo/common";
 import type { EphemeralBroadcast } from "../../hooks/useCanvasSync";
@@ -699,7 +701,7 @@ export function LiveCollabLayer({
                   : "bg-slate-800"
             }`}
           >
-            <span aria-hidden>⏱</span>
+            <Timer className="h-4 w-4" aria-hidden />
             {timesUpUntil > now ? "Time's up!" : formatClock(timer.deadline - now)}
             {timer.label && <span className="text-xs font-normal opacity-80">{timer.label}</span>}
             {canControlTimer && (
@@ -755,11 +757,9 @@ export function LiveCollabLayer({
                   />
                   {user.userName}
                   {inVoice && (
-                    <span aria-label="In voice chat" title="In voice chat">
-                      🎙
-                    </span>
+                    <Mic className="h-3 w-3" aria-label="In voice chat" />
                   )}
-                  {active && <span aria-hidden>👁</span>}
+                  {active && <Eye className="h-3 w-3" aria-hidden />}
                 </button>
               );
             })}
@@ -795,7 +795,7 @@ export function LiveCollabLayer({
                     : ""
                 }`}
               >
-                {voice.muted ? "🔇" : "🎙"}
+                {voice.muted ? <MicOff className="h-4 w-4" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
               </button>
               <button
                 type="button"
@@ -818,7 +818,7 @@ export function LiveCollabLayer({
               aria-label="Join voice chat"
               className="relative rounded-full px-1.5 text-base opacity-80 hover:opacity-100"
             >
-              🎧
+              <Headphones className="h-4 w-4" aria-hidden />
               {voice.participants.size > 0 && (
                 <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-emerald-500 px-1 text-[9px] font-bold text-white">
                   {voice.participants.size}
@@ -836,7 +836,7 @@ export function LiveCollabLayer({
                 aria-expanded={timerMenuOpen}
                 className="rounded-full px-1.5 text-base opacity-80 hover:opacity-100"
               >
-                ⏱
+                <Timer className="h-4 w-4" aria-hidden />
               </button>
               {timerMenuOpen && (
                 <div

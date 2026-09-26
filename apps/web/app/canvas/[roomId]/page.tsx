@@ -1969,7 +1969,7 @@ export default function CanvasPage() {
         ),
       );
       controlsRef.current?.rerender();
-      pushToast("success", `✦ AI updated ${themed.length} shapes (Ctrl/Cmd+Z to undo)`);
+      pushToast("success", `AI updated ${themed.length} shapes (Ctrl/Cmd+Z to undo)`);
       return;
     }
     let toAdd = themed;
@@ -2008,8 +2008,8 @@ export default function CanvasPage() {
     pushToast(
       "success",
       droppedCount > 0
-        ? `✦ AI added ${themed.length} shapes (${droppedCount} invalid skipped)`
-        : `✦ AI added ${themed.length} shapes to your canvas`,
+        ? `AI added ${themed.length} shapes (${droppedCount} invalid skipped)`
+        : `AI added ${themed.length} shapes to your canvas`,
     );
   }, [canvasState, isReadOnly, pushToast]);
 
@@ -2147,7 +2147,7 @@ export default function CanvasPage() {
     }
     try {
       const image = await prepareImageForAi(file);
-      pushToast("info", "✦ Reading the image…");
+      pushToast("info", "Reading the image…");
       void ai.generate(
         "Recreate this image as shapes",
         `Recreate image: ${file.name}`,
@@ -2177,7 +2177,7 @@ export default function CanvasPage() {
         Record<string, unknown> & { id: string }
       >,
     });
-    pushToast("info", "✦ Summarizing the board…");
+    pushToast("info", "Summarizing the board…");
   };
 
   const handleInsertSummary = (markdown: string) => {
@@ -2193,8 +2193,8 @@ export default function CanvasPage() {
     const plain = markdown
       .replace(/\*\*([^*]+)\*\*/g, "$1")
       .replace(/^## /gm, "")
-      .replace(/^- \[ \] /gm, "☐ ")
-      .replace(/^- \[x\] /gim, "☑ ")
+      .replace(/^- \[ \] /gm, "[ ] ")
+      .replace(/^- \[x\] /gim, "[x] ")
       .replace(/^[-*] /gm, "• ");
     const width = 380;
     const lineCount = plain
@@ -3157,9 +3157,9 @@ export default function CanvasPage() {
                       "Insert & import",
                       [
                         ["Templates & sticky notes…", "Kanban, retro…", () => setShowTemplates(true)],
-                        ["Import Mermaid…", "Paste → shapes", () => setMermaidMode("import")],
-                        ["Image → shapes ✦", "Photo/screenshot", () => imageInputRef.current?.click()],
-                        ["Copy as Mermaid…", "Shapes → code", () => setMermaidMode("export")],
+                        ["Import Mermaid…", "Paste to shapes", () => setMermaidMode("import")],
+                        ["Image to shapes", "Photo/screenshot", () => imageInputRef.current?.click()],
+                        ["Copy as Mermaid…", "Shapes to code", () => setMermaidMode("export")],
                       ],
                     ],
                     [
@@ -3172,7 +3172,7 @@ export default function CanvasPage() {
                     ],
                     [
                       "AI",
-                      [["Summarize board ✦", "Key points & actions", () => handleSummarizeBoard()]],
+                      [["Summarize board", "Key points & actions", () => handleSummarizeBoard()]],
                     ],
                     [
                       "Present & share",
@@ -4225,7 +4225,7 @@ export default function CanvasPage() {
 
       {isReadOnly && (
         <div className="pointer-events-none absolute left-1/2 top-[5.6rem] z-30 -translate-x-1/2 rounded-full bg-sky-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg">
-          👁 View only — you can look around, follow and chat, but not edit
+          View only: you can look around, follow and chat, but not edit
         </div>
       )}
 

@@ -59,7 +59,7 @@ This document provides a detailed reference for the REST and WebSocket APIs used
 | _(omitted)_ / `generate` | –               | New shapes for the prompt.                                                                   |
 | `edit`      | `selection` (1–120 shapes)   | Rewritten version of the selection (same id = modified, new id = added, missing = deleted).  |
 | `summarize` | `selection` (board shapes)   | `summary`: markdown with a summary, key points and action items (the `shapes` list is empty).|
-| `image`     | `image` `{ mimeType, data }` | Shapes recreated from a downscaled base64 image (JPEG/PNG/WebP, ≤ ~1.4 MB base64).           |
+| `image`     | `image` `{ mimeType, data }` | Shapes recreated from a downscaled base64 image (JPEG/PNG/WebP, up to about 1.4 MB as base64). |
 
 The job status response contains `status`, `shapes`, `summary` and `errorMessage`.
 

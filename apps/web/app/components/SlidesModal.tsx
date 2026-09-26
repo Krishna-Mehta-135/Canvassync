@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronDown, ChevronUp, Crosshair, X } from "lucide-react";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "../lib/apiClient";
 import { HTTP_BACKEND } from "../../config";
@@ -222,15 +224,15 @@ export function SlidesModal({
                 className={`min-w-0 flex-1 rounded-md border px-2 py-1 text-sm outline-none ${field}`}
               />
               <button type="button" onClick={() => goTo(slide)} className={iconButton} title="Go to this slide" aria-label="Go to slide">
-                ◎
+                <Crosshair className="h-3.5 w-3.5" aria-hidden />
               </button>
               {canEdit && (
                 <>
                   <button type="button" disabled={index === 0} onClick={() => move(index, -1)} className={iconButton} aria-label="Move up">
-                    ↑
+                    <ChevronUp className="h-3.5 w-3.5" aria-hidden />
                   </button>
                   <button type="button" disabled={index === slides.length - 1} onClick={() => move(index, 1)} className={iconButton} aria-label="Move down">
-                    ↓
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                   </button>
                   <button
                     type="button"
@@ -238,7 +240,7 @@ export function SlidesModal({
                     className={`${iconButton} text-red-500`}
                     aria-label="Delete slide"
                   >
-                    ✕
+                    <X className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 </>
               )}
@@ -256,7 +258,7 @@ export function SlidesModal({
             onClick={() => slides && onPresent(slides, 0)}
             className="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
           >
-            ▶ Present slides
+            Present slides
           </button>
         </div>
       </div>

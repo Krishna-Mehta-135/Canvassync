@@ -1,7 +1,7 @@
 <div align="center">
-    <img src="./apps/web/public/logo-canvasio.svg" alt="Canvas.io Logo" width="112" />
+    <img src="./apps/web/public/logo-canvasio.svg" alt="Canvas.io logo" width="96" />
     <h1>Canvas.io</h1>
-    <p><strong>Realtime Collaborative Whiteboard Platform</strong></p>
+    <p>A real-time collaborative whiteboard with AI-assisted diagramming.</p>
 </div>
 
 ![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933?logo=nodedotjs&logoColor=white)
@@ -11,7 +11,9 @@
 ![TypeScript](https://img.shields.io/badge/typescript-5.9-3178C6?logo=typescript&logoColor=white)
 ![Prisma](https://img.shields.io/badge/prisma-ORM-2D3748?logo=prisma&logoColor=white)
 
-**Canvas.io** is a lightning-fast, real-time collaborative whiteboard engineered for modern teams. Built as a high-performance Turborepo monorepo, it seamlessly combines a stunning Next.js frontend, an Express API, a robust WebSocket synchronization backend, and an intelligent AI generation worker. It leverages shared internal packages for crisp canvas rendering, protocol contracts, and highly durable transport primitives to ensure your ideas are never lost.
+Canvas.io is an infinite canvas that several people can edit at the same time. Shapes, text, freehand strokes and connectors sync over WebSockets, boards are saved to PostgreSQL, and an AI worker can draw or edit diagrams from a prompt.
+
+The repository is a Turborepo monorepo with four apps (a Next.js frontend, an Express API, a WebSocket sync server and a Gemini worker) and shared packages for the canvas engine, protocol types and queue/cache clients.
 
 ## Two Reading Paths
 
@@ -50,45 +52,34 @@
 
 ## Product Snapshot
 
-Canvas.io is crafted for visionary teams that demand live, structured visual collaboration without sacrificing technical depth, speed, or aesthetics. Whether you're brainstorming, wireframing, or mapping out complex architectures, Canvas.io provides the infinite space you need.
+### Features
 
-### What it solves
+| Area | What is included |
+| ---- | ---------------- |
+| Drawing | Rectangles, ellipses, diamonds, lines, arrows, text and freehand with a hand-drawn style; connectors that stay attached to shapes; export to PNG, SVG, PDF and JSON |
+| Collaboration | Shared rooms, live cursors, cursor chat, reactions, follow mode, group and direct chat, comments on shapes, shared timer, peer-to-peer voice chat |
+| Presenting | Slides (saved views of the canvas) and a Present mode that lets everyone follow the presenter. Nothing is recorded |
+| History | Version history with preview and restore, and export of the history as a WebM video |
+| AI | Generate a diagram from a prompt, edit selected shapes, summarize a board, recreate a photo or screenshot as shapes |
+| Diagramming | Mermaid import and export, tidy layout, sketch clean-up, templates, align and distribute, minimap |
+| Access | Invite links and access requests, editor and view-only roles, revocable read-only public links |
 
-- Real-time ideation and diagramming in shared rooms
-- Fast collaborative editing with low-latency sync
-- AI-assisted diagram generation from natural-language prompts
-- Persistent room history backed by durable infrastructure
+See the [Feature Guide](docs/features.md) for how each one works and where the code lives.
 
-### Core user capabilities
+### Design goals
 
-- Multi-user collaborative canvas with room-based access
-- Invite links and owner-managed access requests
-- Group chat, direct messages, and shape-linked comments
-- Export-ready canvas workflows in the web app
-- Live cursors, cursor chat, reactions, voice chat, follow/present mode, slides and a shared timer
-- Version history with time-travel restore and timelapse video export
-- AI: generate diagrams, edit a selection in place, summarize a board, turn a photo into shapes
-- Mermaid import/export, tidy auto-layout, sketch clean-up, templates, align/distribute, minimap
-- Editor / view-only roles and read-only public share links
-
-See the [Feature Guide](docs/features.md) for details.
-
-### Why this architecture matters
-
-- Reliable under scale: Redis authority plus RabbitMQ durability
-- Safer operations: bounded retries and circuit breaker behavior for DB access
-- Faster iteration: monorepo shared packages for protocol, rendering, and transport
+- Edits from several users should merge without losing work: Redis holds the authoritative version of each room and RabbitMQ carries durable room events between servers.
+- Database problems should degrade gracefully: calls go through bounded retries and a circuit breaker.
+- Rendering and protocol code is shared between apps through workspace packages instead of being copied.
 
 ## Platform Overview
 
-Canvas.io is designed around room-based collaboration with low-latency synchronization and durable event delivery:
-
-- Real-time multi-user canvas updates over WebSocket
-- Redis-authoritative room versions and latest snapshots
-- RabbitMQ durable room events for replay and reliability
-- Prisma + PostgreSQL persistence for users, rooms, shapes, and chat
-- AI-assisted diagram generation through async worker jobs
-- Shared monorepo packages for protocol, canvas logic, and infrastructure contracts
+- Multi-user canvas updates over WebSocket
+- Room versions and latest snapshots kept in Redis
+- Durable room events and persistence jobs on RabbitMQ
+- PostgreSQL (through Prisma) for users, rooms, shapes, chat, history, slides and roles
+- AI jobs handled asynchronously by a worker
+- Voice audio goes directly between browsers (WebRTC); the WebSocket server only relays the connection setup messages
 
 ## Architecture
 
@@ -307,7 +298,7 @@ Default local endpoints:
 
 - Web app: `http://localhost:3000`
 - HTTP API base: `http://localhost:3001/api/v1`
-- WebSocket backend: `ws://localhost:8080`
+- WebSocket backend: `ws://localhost:8081`
 
 ### Optional: run services individually
 
@@ -375,6 +366,18 @@ Source of truth: `.env.example` at repository root. Keep `.env.example` aligned 
 | `WS_SNAPSHOT_RATE_LIMIT_COUNT`      | `30`                       | Snapshot rate-limit count      |
 | `WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS`  | `1000`                     | Snapshot rate-limit window     |
 | `WS_METRICS_LOG_INTERVAL_MS`        | `30000`                    | WS metrics logging interval    |
+| `WS_EPHEMERAL_RATE_LIMIT_COUNT`     | `60`                       | Cursor, reaction and signaling events allowed per socket per second |
+| `HISTORY_MIN_INTERVAL_MS`           | `30000`                    | Minimum time between history snapshots of a room |
+| `HISTORY_MAX_SNAPSHOTS_PER_ROOM`    | `60`                       | History snapshots kept per room |
+
+### AI and voice
+
+| Variable                        | Default                                        | Purpose |
+| ------------------------------- | ---------------------------------------------- | ------- |
+| `GEMINI_MODEL_CANDIDATES`       | `gemini-flash-latest,gemini-flash-lite-latest` | Models tried in order. Use the `-latest` aliases; pinned versions get retired |
+| `NEXT_PUBLIC_TURN_URL`          | none                                           | Optional TURN server for voice chat behind strict networks |
+| `NEXT_PUBLIC_TURN_USERNAME`     | none                                           | TURN username |
+| `NEXT_PUBLIC_TURN_CREDENTIAL`   | none                                           | TURN credential |
 
 ## API Surface
 
@@ -395,16 +398,21 @@ Base URL: `http://localhost:3001/api/v1`
 - `POST /room` create room
 - `GET /room/mine` list owned rooms
 - `GET /room/:roomId/shapes` paginated shapes (optional viewport filter)
-- `PUT /room/:roomId/shapes` replace full snapshot (owner-only)
+- `PUT /room/:roomId/shapes` replace full snapshot (owner or editor)
 - `GET /room/:roomId/chat/bootstrap` initial chat payload (group, direct, comment)
 - `GET /room/:roomId/invite` generate invite link
 - `POST /room/access/request` request member access
 - `GET /room/access/requests/incoming` list owner inbox
-- `POST /room/access/requests/decision` approve or reject
+- `POST /room/access/requests/decision` approve or reject (optional `role`: `EDITOR` or `VIEWER`)
+- `GET /room/:roomId/members`, `PATCH|DELETE /room/:roomId/members/:userId` manage roles and access (owner)
+- `GET /room/:roomId/history`, `GET /room/:roomId/history/:snapshotId` version history
+- `GET|PUT /room/:roomId/slides` slide deck
+- `GET|POST|DELETE /room/:roomId/public` manage the public read-only link (owner)
+- `GET /public/board/:token` read-only board for a public link (no authentication)
 
 ### AI endpoints
 
-- `POST /room/:roomId/ai/generate` enqueue AI diagram generation
+- `POST /room/:roomId/ai/generate` enqueue an AI job. Optional `mode`: `generate` (default), `edit`, `summarize` or `image`
 - `GET /room/:roomId/ai/generate/:jobId` get AI generation status
 - `POST /internal/ai/result` internal worker callback (guarded by `x-internal-secret`)
 
@@ -444,6 +452,9 @@ Operational documentation:
 - If API calls fail, verify HTTP backend is running on port `3001`.
 - If realtime updates do not propagate, validate both `REDIS_URL` and `RABBITMQ_URL` connectivity.
 - If AI jobs remain pending, ensure `apps/ai-worker` is running and `GEMINI_API_KEY` is valid.
+- If AI jobs fail with a 404 from Gemini, the configured model was retired. Set `GEMINI_MODEL_CANDIDATES` to the `-latest` aliases.
+- If voice chat connects for some people but not others, they are probably behind a strict NAT. Configure a TURN server (`NEXT_PUBLIC_TURN_*`).
+- Use function-style Prisma transactions (`$transaction(async (tx) => ...)`). The database wrapper does not support the array form.
 - If shapes fail to persist, run Prisma migrations and confirm PostgreSQL is healthy.
 - If password reset emails are not delivered, verify Gmail app-password configuration.
 - If collaborators joining causes frame drops or `Maximum update depth exceeded`, update to latest sync hooks and verify no custom `useEffect` calls are setting state from unstable array/object dependencies.

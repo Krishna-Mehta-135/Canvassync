@@ -1,5 +1,7 @@
 "use client";
 
+import { CheckSquare, Sparkles, Square } from "lucide-react";
+
 import { useState } from "react";
 
 type SummaryModalProps = {
@@ -41,7 +43,7 @@ function SummaryBody({ text }: { text: string }) {
         if (checkbox) {
           return (
             <div key={index} className="flex gap-2">
-              <span aria-hidden>{checkbox[1] === " " ? "☐" : "☑"}</span>
+              {checkbox[1] === " " ? <Square className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> : <CheckSquare className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
               <span><Inline text={checkbox[2] ?? ""} /></span>
             </div>
           );
@@ -49,7 +51,7 @@ function SummaryBody({ text }: { text: string }) {
         if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
           return (
             <div key={index} className="flex gap-2">
-              <span aria-hidden>•</span>
+              <span aria-hidden className="mt-2 h-1 w-1 shrink-0 rounded-full bg-current opacity-60" />
               <span><Inline text={trimmed.slice(2)} /></span>
             </div>
           );
@@ -88,7 +90,7 @@ export function SummaryModal({ summary, isDark, onClose, onInsert }: SummaryModa
         }}
       >
         <div className="mb-3 flex items-center gap-2 text-base font-semibold">
-          <span aria-hidden>✦</span> Board summary
+          <Sparkles className="h-4 w-4" aria-hidden /> Board summary
         </div>
         <SummaryBody text={summary} />
         <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -111,7 +113,7 @@ export function SummaryModal({ summary, isDark, onClose, onInsert }: SummaryModa
             }}
             className="rounded-lg border border-current/20 px-3 py-1.5 text-xs"
           >
-            {copied ? "Copied ✓" : "Copy markdown"}
+            {copied ? "Copied" : "Copy markdown"}
           </button>
           <button
             type="button"

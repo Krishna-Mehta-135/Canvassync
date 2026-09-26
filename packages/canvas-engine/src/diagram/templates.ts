@@ -24,17 +24,16 @@ export type TemplateInfo = {
   id: TemplateId;
   name: string;
   description: string;
-  emoji: string;
 };
 
 export const TEMPLATES: TemplateInfo[] = [
-  { id: "sticky", name: "Sticky notes", description: "A handful of colourful notes to jot ideas on", emoji: "🗒️" },
-  { id: "kanban", name: "Kanban board", description: "To do / Doing / Done columns with starter cards", emoji: "📋" },
-  { id: "retro", name: "Retrospective", description: "Start / Stop / Continue with sticky notes", emoji: "🔁" },
-  { id: "swot", name: "SWOT analysis", description: "Strengths, weaknesses, opportunities, threats", emoji: "🧭" },
-  { id: "mindmap", name: "Mind map", description: "A central topic with five connected branches", emoji: "🧠" },
-  { id: "journey", name: "User journey", description: "Five stages from awareness to advocacy", emoji: "🛤️" },
-  { id: "flowchart", name: "Flowchart starter", description: "Start → process → decision → end", emoji: "🔀" },
+  { id: "sticky", name: "Sticky notes", description: "A handful of colourful notes to jot ideas on" },
+  { id: "kanban", name: "Kanban board", description: "To do / Doing / Done columns with starter cards" },
+  { id: "retro", name: "Retrospective", description: "Start / Stop / Continue with sticky notes" },
+  { id: "swot", name: "SWOT analysis", description: "Strengths, weaknesses, opportunities, threats" },
+  { id: "mindmap", name: "Mind map", description: "A central topic with five connected branches" },
+  { id: "journey", name: "User journey", description: "Five stages from awareness to advocacy" },
+  { id: "flowchart", name: "Flowchart starter", description: "Start → process → decision → end" },
 ];
 
 type IdFactory = () => string;
