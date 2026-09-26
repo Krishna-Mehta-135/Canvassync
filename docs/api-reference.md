@@ -39,6 +39,8 @@ This document provides a detailed reference for the REST and WebSocket APIs used
 | `/:roomId/members/:userId`   | DELETE | JWT  | Owner: remove someone's access.                         |
 | `/:roomId/history`           | GET    | JWT  | Version history: recent snapshots (`id`, `shapeCount`, `createdAt`), newest first. |
 | `/:roomId/history/:snapshotId` | GET  | JWT  | One history snapshot including its `shapes`.            |
+| `/:roomId/slides`            | GET    | JWT  | Ordered slide deck (`id`, `title`, `x`, `y`, `width`, `height` — a canvas rectangle). |
+| `/:roomId/slides`            | PUT    | JWT  | Owner/editor: replace the whole deck (`{ slides: [...] }`, max 100). |
 | `/:roomId/public`            | GET    | JWT  | Owner: is the public view link enabled? Returns `token`. |
 | `/:roomId/public`            | POST   | JWT  | Owner: enable the public link (`{ "rotate": true }` issues a new token). |
 | `/:roomId/public`            | DELETE | JWT  | Owner: revoke the public link.                          |
@@ -114,11 +116,13 @@ Short-lived, never persisted, relayed to other nodes over the Redis presence cha
 
 | Message Type          | Direction        | Description                                                                 |
 | :-------------------- | :--------------- | :-------------------------------------------------------------------------- |
-| `ephemeral`           | Client -> Server | `{ roomId, event }` where `event.kind` is `cursor`, `cursor_chat`, `reaction`, `viewport` or `timer`. |
+| `ephemeral`           | Client -> Server | `{ roomId, event }` where `event.kind` is `cursor`, `cursor_chat`, `reaction`, `viewport`, `timer`, `voice` or `rtc`. |
 | `ephemeral_broadcast` | Server -> Client | Same `event`, plus `senderId` and `senderName`.                             |
 
 - `viewport` events carry the canvas point at the centre of the sender's screen plus scale, so followers with different screen sizes land on the same content. `present: true` makes everyone auto-follow the sender.
 - `timer` carries `remainingMs` (not a deadline, so client clocks needn't agree; `null` cancels). Only owners/editors may start one. The server remembers the deadline and replays the remaining time to late joiners.
+
+- `voice` (`{ on }`) is who is in the voice call; the server tracks it, replays it to late joiners and clears it when a connection drops. `rtc` (`{ to, data }`) carries WebRTC offer/answer/ICE JSON and is delivered **only to `to`** (also across nodes). Audio itself is peer-to-peer and never passes through the server.
 
 ### Roles
 

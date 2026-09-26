@@ -11,9 +11,15 @@ A tour of the collaboration, AI and diagramming features, where they live in the
 | **Reactions** | Emoji bar; reactions float up at your cursor on everyone's screen. | same |
 | **Follow / Present** | Click a person to follow their view (any pan, click or `Esc` stops it). *Present* makes everyone follow you until you stop. | same + `ephemeral` `viewport` events |
 | **Shared timer** | 1/3/5/10 minute countdown for the whole room with a chime; late joiners see the remaining time. | `LiveCollabLayer.tsx`, `apps/ws-backend/src/ws/connectionState.ts` |
+| **Voice chat** | 🎧 in the collaboration bar. Peer-to-peer WebRTC audio (mesh), signaled over the room WebSocket. **Never recorded or stored** — audio doesn't touch our servers. Mute, speaking rings, mic marker on participants. STUN by default; set `NEXT_PUBLIC_TURN_URL` / `_USERNAME` / `_CREDENTIAL` for a TURN relay behind strict NATs. Mesh is best for small groups (≈ up to 6). | `apps/web/hooks/useVoiceChat.ts` |
 | **Minimap** | Overview with the current view outlined; click/drag to jump. Toggle from the ⋯ menu. | `app/components/Minimap.tsx` |
 
 All of the above ride on the `ephemeral` WebSocket message (see the API reference).
+
+## Slides & presenting
+
+- **Present** (collaboration bar) only *broadcasts your camera* live so others follow. It is ephemeral: nothing is recorded or stored.
+- **Slides** (⋯ → Slides…) are saved rectangles of the canvas, stored per room in `RoomSlide`. Add the current view or frame the selection, rename, reorder, delete. *Present slides* flies the camera between them (→ / Space / ← / Esc) and reuses Present so everyone follows. Editors manage the deck; viewers can watch. Code: `SlidesModal.tsx`, `SlidePresenter.tsx`.
 
 ## Access & sharing
 
@@ -44,6 +50,7 @@ Runs through the same queue → worker → Gemini pipeline as generation (`docs/
 | **Clean up sketch** | Snaps rough freehand strokes to rectangles, ellipses, diamonds, lines; strokes that start/end on shapes become bound arrows. | `diagram/sketch.ts` |
 | **Templates & sticky notes** | Kanban, retro, SWOT, mind map, journey map, flowchart starter. | `diagram/templates.ts` |
 | **Align / distribute** | Toolbar for 2+ selected shapes (3+ to distribute). | `diagram/arrange.ts` |
+| **Attach labels & lines** | AI-generated / imported text and connectors arrive as loose shapes. They are auto-linked to the box they sit in (text `parentId`, connector bindings), so they follow when the box moves. ⋯ → *Attach labels & lines* repairs existing boards. | `diagram/labels.ts` |
 | **Smarter connector routing** | Bound connectors leave/enter perpendicular to the edge they are anchored to. Interior anchors keep the classic routing. | `packages/canvas-engine/src/connectors.ts` |
 
 ## Configuration added
@@ -57,4 +64,8 @@ Runs through the same queue → worker → Gemini pipeline as generation (`docs/
 
 ## Database migrations added
 
-`RoomSnapshot` (version history), `Room.publicToken` (public link) and `RoomMember.role` (roles). Deploys apply them with `prisma migrate deploy`.
+`RoomSnapshot` (version history), `Room.publicToken` (public link), `RoomMember.role` (roles) and `RoomSlide` (slides). Deploys apply them with `prisma migrate deploy`.
+
+## Gotcha: transactions
+
+The shared DB wrapper (`packages/db`, retry + circuit breaker) only supports **function-style** `prisma.$transaction(async (tx) => …)`. The array form `$transaction([…])` throws "All elements of the array need to be Prisma Client promises".
