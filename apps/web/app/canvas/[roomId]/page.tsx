@@ -20,6 +20,10 @@ import {
   tidyLayout,
   snapSketches,
   buildTemplate,
+  alignShapes,
+  distributeShapes,
+  type AlignMode,
+  type DistributeAxis,
   MermaidParseError,
   type TemplateId,
 } from "@repo/canvas-engine";
@@ -39,6 +43,7 @@ import { AiEditBar } from "../../components/AiEditBar";
 import { MermaidModal } from "../../components/MermaidModal";
 import { SummaryModal } from "../../components/SummaryModal";
 import { TemplatesModal } from "../../components/TemplatesModal";
+import { ArrangeBar } from "../../components/ArrangeBar";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
 
@@ -1994,6 +1999,20 @@ export default function CanvasPage() {
         }
       : { x: 0, y: 0 };
   };
+
+  const applyArrangement = (
+    compute: (shapes: Shape[], ids: ReadonlySet<string>) => Shape[] | null,
+  ) => {
+    if (!canvasState) return;
+    const next = compute(canvasState.getShapes(), new Set(selectedIds));
+    if (!next) return; // nothing to move (already arranged)
+    canvasState.setShapes(next);
+    controlsRef.current?.rerender();
+  };
+  const handleAlign = (mode: AlignMode) =>
+    applyArrangement((shapes, ids) => alignShapes(shapes, ids, mode));
+  const handleDistribute = (axis: DistributeAxis) =>
+    applyArrangement((shapes, ids) => distributeShapes(shapes, ids, axis));
 
   const handleInsertTemplate = (id: TemplateId) => {
     if (!canvasState) return;
@@ -3989,6 +4008,13 @@ export default function CanvasPage() {
           }}
         />
       )}
+
+      <ArrangeBar
+        selectedCount={selectedIds.length}
+        isDark={isDark}
+        onAlign={handleAlign}
+        onDistribute={handleDistribute}
+      />
 
       <AiEditBar
         selectedCount={selectedIds.length}

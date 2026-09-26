@@ -193,3 +193,38 @@ export function tidyLayout(
     return shape;
   });
 }
+
+/**
+ * Recomputes endpoints of connectors bound to any of `movedIds` from their
+ * bindings, so they follow the shapes they are attached to.
+ */
+export function reattachConnectors(
+  shapes: Shape[],
+  movedIds: ReadonlySet<string>,
+): Shape[] {
+  const byId = new Map(shapes.map((shape) => [shape.id, shape]));
+  const attach = (
+    binding: { shapeId: string; relX: number; relY: number } | undefined,
+    fallback: { x: number; y: number },
+  ) => {
+    const target = binding && byId.get(binding.shapeId);
+    if (!binding || !target) return fallback;
+    const box = convertToPoints(target);
+    return {
+      x: box.x1 + binding.relX * (box.x2 - box.x1),
+      y: box.y1 + binding.relY * (box.y2 - box.y1),
+    };
+  };
+
+  return shapes.map((shape): Shape => {
+    if (shape.type !== "arrow" && shape.type !== "line") return shape;
+    const touchesMoved =
+      (shape.startBinding && movedIds.has(shape.startBinding.shapeId)) ||
+      (shape.endBinding && movedIds.has(shape.endBinding.shapeId));
+    if (!touchesMoved) return shape;
+
+    const from = attach(shape.startBinding, { x: shape.x1, y: shape.y1 });
+    const to = attach(shape.endBinding, { x: shape.x2, y: shape.y2 });
+    return { ...shape, x1: from.x, y1: from.y, x2: to.x, y2: to.y };
+  });
+}
