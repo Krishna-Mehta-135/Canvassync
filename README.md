@@ -1,6 +1,6 @@
 <div align="center">
-    <img src="./apps/web/public/logo-canvasio.svg" alt="Canvas.io logo" width="96" />
-    <h1>Canvas.io</h1>
+    <img src="./apps/web/public/logo-canvasio.svg" alt="Canvassync.tech logo" width="96" />
+    <h1>Canvassync.tech</h1>
     <p>A real-time collaborative whiteboard with AI-assisted diagramming.</p>
 </div>
 
@@ -11,7 +11,7 @@
 ![TypeScript](https://img.shields.io/badge/typescript-5.9-3178C6?logo=typescript&logoColor=white)
 ![Prisma](https://img.shields.io/badge/prisma-ORM-2D3748?logo=prisma&logoColor=white)
 
-Canvas.io is an infinite canvas that several people can edit at the same time. Shapes, text, freehand strokes and connectors sync over WebSockets, boards are saved to PostgreSQL, and an AI worker can draw or edit diagrams from a prompt.
+Canvassync.tech is an infinite canvas that several people can edit at the same time. Shapes, text, freehand strokes and connectors sync over WebSockets, boards are saved to PostgreSQL, and an AI worker can draw or edit diagrams from a prompt.
 
 The repository is a Turborepo monorepo with four apps (a Next.js frontend, an Express API, a WebSocket sync server and a Gemini worker) and shared packages for the canvas engine, protocol types and queue/cache clients.
 
@@ -278,7 +278,7 @@ WEB_APP_URL=http://localhost:3000
 # Password reset email
 GMAIL_USER=your-email@gmail.com
 GMAIL_APP_PASSWORD=your-google-app-password
-GMAIL_FROM_EMAIL=Canvas.io <your-email@gmail.com>
+GMAIL_FROM_EMAIL=Canvassync.tech <your-email@gmail.com>
 ```
 
 ### 5. Generate Prisma client and apply migrations
