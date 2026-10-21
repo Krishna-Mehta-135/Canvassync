@@ -820,6 +820,42 @@ function linkAiShapes(all: Shape[], newIds: ReadonlySet<string>): Shape[] {
   return bindConnectorsToContainers(withLabels, newIds).shapes;
 }
 
+/**
+ * Polish a freshly generated diagram: clean (non-sketchy) strokes with solid
+ * fills, then the layered auto-layout so nodes line up on ranks, spacing is even
+ * and connectors re-route without crossing boxes. Falls back to the clean-styled
+ * shapes when there is no connected graph to lay out.
+ */
+function beautifyAiShapes(all: Shape[], newIds: ReadonlySet<string>): Shape[] {
+  const fresh = all.filter((shape) => newIds.has(shape.id));
+  if (fresh.length === 0) return all;
+
+  const styled = fresh.map((shape): Shape => {
+    if (shape.type === "freehand" || shape.type === "text") return shape;
+    const filled = Boolean(shape.fill) && shape.fill !== "transparent";
+    return {
+      ...shape,
+      roughness: 0,
+      strokeWidth: Math.max(2, shape.strokeWidth ?? 2),
+      ...(filled ? { fillStyle: "solid" as const } : {}),
+    };
+  });
+
+  let laidOut: Shape[] | null = null;
+  try {
+    const bounds = getBoundsForShapes(styled);
+    const wide =
+      bounds !== null &&
+      bounds.maxX - bounds.minX > (bounds.maxY - bounds.minY) * 1.4;
+    laidOut = tidyLayout(styled, wide ? "LR" : "TD");
+  } catch {
+    laidOut = null;
+  }
+
+  const byId = new Map((laidOut ?? styled).map((shape) => [shape.id, shape]));
+  return all.map((shape) => byId.get(shape.id) ?? shape);
+}
+
 function translateShapes(shapes: Shape[], dx: number, dy: number): Shape[] {
   if (dx === 0 && dy === 0) return shapes;
   return shapes.map((shape): Shape => {
@@ -1988,14 +2024,15 @@ export default function CanvasPage() {
     }
     // AI places labels as loose text; link each to the box it sits in so the
     // text follows when the box is moved.
-    canvasState.setShapes(
-      linkAiShapes(
-        [...canvasState.getShapes(), ...toAdd],
-        new Set(toAdd.map((shape) => shape.id)),
-      ),
-    );
+    const addedIds = new Set(toAdd.map((shape) => shape.id));
+    const linked = linkAiShapes([...canvasState.getShapes(), ...toAdd], addedIds);
+    // Image imports must keep their traced geometry; generated diagrams get tidied.
+    const finalShapes = meta?.placeBeside ? linked : beautifyAiShapes(linked, addedIds);
+    canvasState.setShapes(finalShapes);
     controlsRef.current?.rerender();
-    const generatedBounds = getBoundsForShapes(toAdd);
+    const generatedBounds = getBoundsForShapes(
+      finalShapes.filter((shape) => addedIds.has(shape.id)),
+    );
     if (generatedBounds) {
       controlsRef.current?.focusViewportToBounds(generatedBounds, {
         padding: 140,
@@ -2963,6 +3000,10 @@ export default function CanvasPage() {
                 messages={ai.messages}
                 isGenerating={ai.isGenerating}
                 onSend={ai.generate}
+                onAsk={ai.ask}
+                onRegenerate={ai.regenerate}
+                onImage={(file) => void handleImageChosen(file)}
+                onClear={ai.clearHistory}
               />
             )}
           </div>

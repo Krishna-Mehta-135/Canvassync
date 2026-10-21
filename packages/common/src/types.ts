@@ -128,9 +128,48 @@ export const AiImageInputSchema = z.object({
   data: z.string().min(100).max(1_400_000),
 });
 
+export const AiHistoryTurnSchema = z.object({
+  role: z.enum(["user", "ai"]),
+  text: z.string().max(1500),
+});
+
+export const AiAskRequestSchema = z.object({
+  question: z.string().trim().min(1).max(2000),
+  history: z.array(AiHistoryTurnSchema).max(10).optional(),
+  // Plain-text outline of the board (labels/text), so questions can reference it.
+  board: z.string().max(6000).optional(),
+});
+
+export const AiChatMessageSchema = z.object({
+  id: z.string().max(64),
+  role: z.enum(["user", "ai"]),
+  text: z.string().max(8000),
+  time: z.string().max(32),
+  kind: z.enum(["draw", "ask"]).optional(),
+  isError: z.boolean().optional(),
+  shapeCount: z.number().optional(),
+  prompt: z.string().max(2000).optional(),
+  citations: z
+    .array(
+      z.object({
+        n: z.number(),
+        sourceName: z.string().max(200),
+        snippet: z.string().max(400),
+      }),
+    )
+    .max(10)
+    .optional(),
+});
+
+export const AiChatSaveSchema = z.object({
+  messages: z.array(AiChatMessageSchema).max(200),
+});
+
 export const AiGenerateRequestSchema = z
   .object({
     prompt: z.string().trim().min(1).max(12000), // extended to allow canvas context JSON
+    // Recent turns so follow-ups like "now add a cache" keep context.
+    history: z.array(AiHistoryTurnSchema).max(10).optional(),
     // "edit" rewrites `selection` according to `prompt` instead of adding new shapes;
     // "summarize" turns `selection` (the board's shapes) into a text summary.
     mode: z.enum(["generate", "edit", "summarize", "image"]).optional(),

@@ -30,6 +30,9 @@ import {
   addSource,
   deleteSource,
   getSourceSuggestions,
+  askAi,
+  getAiChat,
+  saveAiChat,
 } from "../controllers/sources.controller";
 
 import {
@@ -112,6 +115,10 @@ roomRouter.get(
   authenticate,
   getAiGenerateStatus,
 );
+
+roomRouter.post("/:roomId/ai/ask", authenticate, askAi);
+roomRouter.get("/:roomId/ai/chat", authenticate, getAiChat);
+roomRouter.put("/:roomId/ai/chat", authenticate, saveAiChat);
 
 // Reference sources (RAG)
 roomRouter.get("/:roomId/sources", authenticate, listSources);

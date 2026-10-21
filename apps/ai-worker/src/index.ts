@@ -83,6 +83,7 @@ Layout + quality rules:
   * Use 'circle' for Users, Actors, Databases, or external entry points.
   * Use 'rhombus' for Decision points, Gateways, Load Balancers, or Logic checks.
   * Combine these tools! Do not use only one node type for a complex system.
+- Look polished: equal-size boxes within a tier (about 180x64), consistent 70-90px gaps, tiers aligned in rows/columns, no overlaps, one idea per box with 1-4 word labels, and at most 5 colors used by meaning (e.g. blue=services, green=data, amber=decisions).
 - Generate 1 heading + 10-40 content shapes.
 - Keep text labels concise.
 - JSON: MINIFIED ONLY. No newlines, no extra spaces, no comments. This is critical for fitting large diagrams.
@@ -170,11 +171,16 @@ function getModel(modelName: string, kind: ModelKind = "generate") {
     generationConfig:
       kind === "summarize"
         ? { temperature: 0.3, maxOutputTokens: 2048 }
-        : {
+        : ({
             temperature: 0.3,
             maxOutputTokens: 12288,
             responseMimeType: "application/json",
-          },
+            // Diagram JSON needs no reasoning pass; skipping it cuts latency a lot.
+            // The lite models reject the setting, so only send it to the others.
+            ...(modelName.includes("lite")
+              ? {}
+              : { thinkingConfig: { thinkingBudget: 0 } }),
+          } as Record<string, unknown>),
   });
 
   modelCache.set(cacheKey, model);

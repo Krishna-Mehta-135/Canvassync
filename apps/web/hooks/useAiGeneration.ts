@@ -8,7 +8,20 @@ export interface ChatMessage {
   isError?: boolean;
   shapeCount?: number;
   time: string;
+  /** "ask" = text answer, "draw" = diagram (default). */
+  kind?: "draw" | "ask";
+  /** Draw replies keep the prompt that produced them, for Regenerate. */
+  prompt?: string;
+  citations?: AiCitation[];
 }
+
+export interface AiCitation {
+  n: number;
+  sourceName: string;
+  snippet: string;
+}
+
+type HistoryTurn = { role: "user" | "ai"; text: string };
 
 /** Present for edit-mode results: the shapes the AI output replaces. */
 export interface AiResultMeta {
@@ -35,6 +48,7 @@ interface UseAiGenerationOptions {
   apiClient: {
     post: (url: string, data?: unknown) => Promise<{ data: unknown }>;
     get: (url: string) => Promise<{ data: unknown }>;
+    put: (url: string, data?: unknown) => Promise<{ data: unknown }>;
   };
   onShapesGenerated: (shapes: unknown[], meta?: AiResultMeta) => void;
   onError: (message: string) => void;
@@ -43,8 +57,9 @@ interface UseAiGenerationOptions {
 }
 
 const POLL_INTERVAL_MS = 1500;
-const POLL_MAX_ATTEMPTS = 40;
-const AI_CHAT_STORAGE_PREFIX = "canvas-ai-chat-history";
+const POLL_MAX_ATTEMPTS = 100;
+const SAVE_DEBOUNCE_MS = 800;
+const HISTORY_TURNS = 6;
 
 function nowTime() {
   return new Date().toLocaleTimeString([], {
@@ -68,43 +83,54 @@ export function useAiGeneration({
   const editTargetsRef = useRef<Map<string, string[]>>(new Map());
   const imageJobsRef = useRef<Set<string>>(new Set());
 
-  const storageKey =
-    roomId && userId ? `${AI_CHAT_STORAGE_PREFIX}:${userId}:${roomId}` : null;
-  // Which key `messages` currently belongs to, so a stale list is never written
-  // under another canvas's key while switching.
+  // Chat lives on the server, private to this user on this canvas, so it follows
+  // them across devices. Saving stays off until the first load succeeds so a
+  // failed load can never overwrite stored history with an empty list.
+  const chatKey = roomId && userId ? `${roomId}:${userId}` : null;
   const loadedKeyRef = useRef<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadedKeyRef.current = null;
     setMessages([]);
-    if (!storageKey || typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored) as ChatMessage[];
-        // Polling isn't resumed across reloads.
+    if (!chatKey || !roomId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiClient.get(`${httpBackend}/room/${roomId}/ai/chat`);
+        if (cancelled) return;
+        const stored =
+          (res.data as { data?: { messages?: ChatMessage[] } })?.data?.messages ?? [];
         setMessages(
-          parsed.map((m) =>
+          stored.map((m) =>
             m.isGenerating
-              ? { ...m, isGenerating: false, text: "Interrupted — please try again." }
+              ? { ...m, isGenerating: false, isError: true, text: "Interrupted — please try again." }
               : m,
           ),
         );
+        loadedKeyRef.current = chatKey;
+      } catch {
+        // Chat still works in-memory; it just won't persist this session.
       }
-    } catch {
-      // Ignore parse errors
-    }
-    loadedKeyRef.current = storageKey;
-  }, [storageKey]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, chatKey, httpBackend, roomId]);
 
   useEffect(() => {
-    if (!storageKey || loadedKeyRef.current !== storageKey) return;
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify(messages));
-    } catch {
-      // Ignore storage errors
-    }
-  }, [messages, storageKey]);
+    if (!chatKey || !roomId || loadedKeyRef.current !== chatKey) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      const settled = messages.filter((m) => !m.isGenerating).slice(-200);
+      void apiClient
+        .put(`${httpBackend}/room/${roomId}/ai/chat`, { messages: settled })
+        .catch(() => undefined);
+    }, SAVE_DEBOUNCE_MS);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [apiClient, chatKey, httpBackend, messages, roomId]);
 
   useEffect(
     () => () => {
@@ -119,6 +145,15 @@ export function useAiGeneration({
   const addMsg = useCallback((msg: ChatMessage) => setMessages((p) => [...p, msg]), []);
   const patchMsg = useCallback((id: string, patch: Partial<ChatMessage>) =>
     setMessages((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m))), []);
+
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const getHistory = useCallback((): HistoryTurn[] => {
+    return messagesRef.current
+      .filter((m) => !m.isGenerating && !m.isError && m.text.trim())
+      .slice(-HISTORY_TURNS)
+      .map((m) => ({ role: m.role, text: m.text.slice(0, 500) }));
+  }, []);
 
   const poll = useCallback((jobId: string, aiId: string, attempt = 0) => {
     if (!roomId) return;
@@ -207,6 +242,8 @@ export function useAiGeneration({
     addMsg({
       id: aid,
       role: "ai",
+      kind: "draw",
+      prompt: options ? undefined : prompt,
       text:
         options?.mode === "summarize"
           ? "Summarizing…"
@@ -222,7 +259,7 @@ export function useAiGeneration({
       const res = await apiClient.post(
         `${httpBackend}/room/${roomId}/ai/generate`,
         !options
-          ? { prompt }
+          ? { prompt, history: getHistory() }
           : options.mode === "image"
             ? { prompt, mode: "image", image: options.image }
             : { prompt, mode: options.mode, selection: options.selection },
@@ -255,19 +292,66 @@ export function useAiGeneration({
       setIsGenerating(false);
       onError(backendMessage);
     }
-  }, [addMsg, apiClient, httpBackend, isGenerating, onError, patchMsg, poll, roomId]);
+  }, [addMsg, apiClient, getHistory, httpBackend, isGenerating, onError, patchMsg, poll, roomId]);
+
+  /** Text answer (no drawing), grounded in the canvas sources when there are any. */
+  const ask = useCallback(
+    async (question: string, board?: string) => {
+      if (!question.trim() || !roomId || isGenerating) return;
+      const history = getHistory();
+      const aid = `ai-${Date.now() + 1}`;
+      addMsg({ id: `u-${Date.now()}`, role: "user", text: question, kind: "ask", time: nowTime() });
+      addMsg({ id: aid, role: "ai", text: "Thinking…", kind: "ask", isGenerating: true, time: nowTime() });
+      setIsGenerating(true);
+      try {
+        const res = await apiClient.post(`${httpBackend}/room/${roomId}/ai/ask`, {
+          question,
+          history,
+          ...(board ? { board } : {}),
+        });
+        const d = (res.data as { data?: { answer?: string; citations?: AiCitation[] } })?.data;
+        patchMsg(aid, {
+          isGenerating: false,
+          text: d?.answer?.trim() || "I couldn't come up with an answer.",
+          citations: d?.citations ?? [],
+        });
+      } catch (error) {
+        const e = error as { response?: { data?: { message?: string } } };
+        patchMsg(aid, {
+          isGenerating: false,
+          isError: true,
+          text: e.response?.data?.message || "Could not get an answer. Please try again.",
+        });
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [addMsg, apiClient, getHistory, httpBackend, isGenerating, patchMsg, roomId],
+  );
+
+  /** Re-run the draw prompt behind an AI reply. */
+  const regenerate = useCallback(
+    (messageId: string) => {
+      const list = messagesRef.current;
+      const idx = list.findIndex((m) => m.id === messageId);
+      const prompt = idx >= 0 ? list[idx]?.prompt : undefined;
+      if (!prompt) return;
+      const userText = list[idx - 1]?.role === "user" ? list[idx - 1]!.text : undefined;
+      void generate(prompt, userText);
+    },
+    [generate],
+  );
 
   const clearHistory = useCallback(() => {
     setMessages([]);
-    if (storageKey && typeof window !== "undefined") {
-      window.localStorage.removeItem(storageKey);
-    }
-  }, [storageKey]);
+  }, []);
 
   return {
     messages,
     isGenerating,
     generate,
+    ask,
+    regenerate,
     clearHistory,
   };
 }

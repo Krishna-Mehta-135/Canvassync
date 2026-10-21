@@ -38,6 +38,53 @@ function formatTime(isoDate: string) {
   }
 }
 
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+const URL_PATTERN = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g;
+
+function dayKey(isoDate: string) {
+  const d = new Date(isoDate);
+  return Number.isNaN(d.getTime()) ? isoDate : d.toDateString();
+}
+
+function formatDayLabel(isoDate: string) {
+  const d = new Date(isoDate);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(d.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
+  }).format(d);
+}
+
+/** Message text with http(s) links made clickable (opened safely in a new tab). */
+function LinkifiedText({ text, isMine }: { text: string; isMine: boolean }) {
+  return (
+    <>
+      {text.split(URL_PATTERN).map((part, i) =>
+        i % 2 === 1 ? (
+          <a
+            key={i}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`underline underline-offset-2 ${isMine ? "text-white" : "text-[#0a7cff]"}`}
+          >
+            {part}
+          </a>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 function shortShapeId(shapeId: string | null | undefined) {
   if (!shapeId) return "shape";
   return shapeId.length > 10 ? `${shapeId.slice(0, 8)}...` : shapeId;
@@ -48,24 +95,30 @@ function MessageBubble({
   isMine,
   isDark,
   showShapeId = false,
+  grouped = false,
 }: {
   message: CanvasChatMessage;
   isMine: boolean;
   isDark: boolean;
   showShapeId?: boolean;
+  /** Same sender as the previous message within a few minutes: compact, no header. */
+  grouped?: boolean;
 }) {
   return (
-    <div className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`flex ${isMine ? "justify-end" : "justify-start"} ${grouped ? "-mt-2" : ""}`}
+      title={grouped ? formatTime(message.createdAt) : undefined}
+    >
       <div
         className={`max-w-[82%] ${isMine ? "items-end" : "items-start"} flex flex-col`}
       >
         <div
           className={`mb-1 flex items-center gap-2 text-[11px] ${
             isDark ? "text-white/45" : "text-slate-500"
-          }`}
+          } ${grouped && !(showShapeId && message.shapeId) ? "hidden" : ""}`}
         >
-          <span>{isMine ? "You" : message.sender.name}</span>
-          <span>{formatTime(message.createdAt)}</span>
+          {!grouped && <span>{isMine ? "You" : message.sender.name}</span>}
+          {!grouped && <span>{formatTime(message.createdAt)}</span>}
           {showShapeId && message.shapeId ? (
             <span
               className={`rounded-full px-2 py-0.5 ${
@@ -79,7 +132,7 @@ function MessageBubble({
           ) : null}
         </div>
         <div
-          className={`rounded-2xl px-3 py-2 text-sm shadow-sm ${
+          className={`whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm shadow-sm [overflow-wrap:anywhere] ${
             message.deliveryState === "failed"
               ? isDark
                 ? "border border-red-400/30 bg-red-500/12 text-red-100"
@@ -91,7 +144,7 @@ function MessageBubble({
                   : "border border-slate-200 bg-white text-slate-700"
           }`}
         >
-          {message.body}
+          <LinkifiedText text={message.body} isMine={isMine} />
         </div>
         {message.deliveryState === "sending" ? (
           <div
@@ -112,6 +165,53 @@ function MessageBubble({
   );
 }
 
+function MessageList({
+  messages,
+  currentUserId,
+  isDark,
+  showShapeId = false,
+}: {
+  messages: CanvasChatMessage[];
+  currentUserId: string | null;
+  isDark: boolean;
+  showShapeId?: boolean;
+}) {
+  return (
+    <>
+      {messages.map((message, i) => {
+        const prev = messages[i - 1];
+        const newDay = !prev || dayKey(prev.createdAt) !== dayKey(message.createdAt);
+        const grouped =
+          !newDay &&
+          prev !== undefined &&
+          prev.sender.id === message.sender.id &&
+          (prev.shapeId ?? null) === (message.shapeId ?? null) &&
+          Date.parse(message.createdAt) - Date.parse(prev.createdAt) < GROUP_WINDOW_MS;
+        return (
+          <div key={message.id} className="contents">
+            {newDay && (
+              <div
+                className={`flex items-center gap-3 text-[11px] ${isDark ? "text-white/35" : "text-slate-400"}`}
+              >
+                <span className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                {formatDayLabel(message.createdAt)}
+                <span className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              </div>
+            )}
+            <MessageBubble
+              message={message}
+              isMine={message.sender.id === currentUserId}
+              isDark={isDark}
+              showShapeId={showShapeId}
+              grouped={grouped}
+            />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function Composer({
   value,
   onChange,
@@ -127,6 +227,11 @@ function Composer({
   isDark: boolean;
   disabled?: boolean;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    // Shrink back after the draft is sent/cleared.
+    if (!value && textareaRef.current) textareaRef.current.style.height = "auto";
+  }, [value]);
   return (
     <div
       className={`flex items-end gap-2 rounded-2xl border p-2 ${
@@ -134,10 +239,17 @@ function Composer({
       }`}
     >
       <textarea
+        ref={textareaRef}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          const el = event.target;
+          el.style.height = "auto";
+          el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+        }}
+        maxLength={2000}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             onSend();
           }
@@ -613,14 +725,11 @@ export function CanvasMessenger({
                       Start the room conversation.
                     </div>
                   ) : null}
-                  {chat.groupMessages.map((message) => (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      isMine={message.sender.id === currentUserId}
-                      isDark={isDark}
-                    />
-                  ))}
+                  <MessageList
+                    messages={chat.groupMessages}
+                    currentUserId={currentUserId}
+                    isDark={isDark}
+                  />
                   <div ref={scrollEndRef} />
                 </div>
                 <div className="p-3">
@@ -733,14 +842,11 @@ export function CanvasMessenger({
                         appear here.
                       </div>
                     ) : null}
-                    {directMessagesForPartner.map((message) => (
-                      <MessageBubble
-                        key={message.id}
-                        message={message}
-                        isMine={message.sender.id === currentUserId}
-                        isDark={isDark}
-                      />
-                    ))}
+                    <MessageList
+                      messages={directMessagesForPartner}
+                      currentUserId={currentUserId}
+                      isDark={isDark}
+                    />
                     <div ref={scrollEndRef} />
                   </div>
                   <div className="p-3">
@@ -814,15 +920,12 @@ export function CanvasMessenger({
                         : "Shape comments will appear here."}
                     </div>
                   ) : null}
-                  {visibleComments.map((message) => (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      isMine={message.sender.id === currentUserId}
-                      isDark={isDark}
-                      showShapeId={commentView === "all"}
-                    />
-                  ))}
+                  <MessageList
+                    messages={visibleComments}
+                    currentUserId={currentUserId}
+                    isDark={isDark}
+                    showShapeId={commentView === "all"}
+                  />
                   <div ref={scrollEndRef} />
                 </div>
                 <div className="p-3">

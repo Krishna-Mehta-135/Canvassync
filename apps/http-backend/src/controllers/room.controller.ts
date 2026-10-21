@@ -22,7 +22,12 @@ import {
 import { asyncHandler } from "../utils/asyncHandler";
 import { publishAiGenerateJob } from "@repo/queue-sync";
 import { randomUUID } from "node:crypto";
-import { buildReferenceBlock, hasSources, retrieveChunks } from "../utils/rag";
+import {
+  buildHistoryBlock,
+  buildReferenceBlock,
+  hasSources,
+  retrieveChunks,
+} from "../utils/rag";
 import { sharedRedisClient as redisClient } from "@repo/redis-sync";
 import { INTERNAL_SECRET } from "@repo/backend-common/config";
 
@@ -1368,7 +1373,7 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
     );
   }
 
-  const { mode, selection, image } = bodyValidation.data;
+  const { mode, selection, image, history } = bodyValidation.data;
   let prompt = bodyValidation.data.prompt;
   const jobId = randomUUID();
 
@@ -1383,6 +1388,7 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
     } catch (error) {
       console.warn("[AI] source retrieval skipped:", (error as Error).message);
     }
+    prompt = buildHistoryBlock(history) + prompt;
   }
 
   const initialEntry: AiJobEntry = {

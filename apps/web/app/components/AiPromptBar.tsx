@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { ChatMessage } from "../../hooks/useAiGeneration";
-import { AiSourcesPanel } from "./AiSourcesPanel";
+import { useAiSources } from "../../hooks/useAiSources";
 
 interface AiChatModalProps {
   roomId: number | null;
@@ -20,16 +20,55 @@ interface AiChatModalProps {
   messages: ChatMessage[];
   isGenerating: boolean;
   onSend: (prompt: string, displayText?: string) => Promise<void>;
+  onAsk: (question: string, board?: string) => Promise<void>;
+  onRegenerate: (messageId: string) => void;
+  /** An image dropped/picked in the chat: recreate it as shapes. */
+  onImage: (file: File) => void;
+  onClear: () => void;
+}
+
+type Intent = "draw" | "ask";
+
+const DRAW_VERB =
+  /^(please\s+)?(draw|sketch|diagram|map|create|make|build|generate|design|add|visuali[sz]e|illustrate|plot|show|compare|turn|convert|put|lay|lay out|chart|outline)\b/i;
+const QUESTION_START =
+  /^(what|why|how|who|whom|whose|when|where|which|is|are|was|were|do|does|did|can|could|should|would|will|explain|summari[sz]e|tell|describe|list|define|give me|suggest)\b/i;
+
+/**
+ * One input for everything: decide whether a message wants a drawing or a text
+ * answer. "/draw" and "/ask" force it; otherwise lean on verbs and phrasing, and
+ * default to drawing for bare noun phrases like "Microservices architecture".
+ */
+function detectIntent(text: string): { intent: Intent; text: string } {
+  const forced = /^\/(draw|ask)\s+/i.exec(text);
+  if (forced) {
+    return {
+      intent: forced[1]!.toLowerCase() as Intent,
+      text: text.slice(forced[0].length).trim(),
+    };
+  }
+  const t = text.trim();
+  const isQuestion = t.endsWith("?");
+  if (DRAW_VERB.test(t) && !(isQuestion && QUESTION_START.test(t))) {
+    return { intent: "draw", text: t };
+  }
+  if (isQuestion || QUESTION_START.test(t)) return { intent: "ask", text: t };
+  return { intent: "draw", text: t };
+}
+
+/** Plain text of labels on the board, so questions can reference what's drawn. */
+function boardOutline(shapes: unknown[]): string {
+  const labels: string[] = [];
+  for (const shape of shapes) {
+    const s = shape as { type?: string; text?: unknown };
+    if (s.type === "text" && typeof s.text === "string" && s.text.trim()) {
+      labels.push(s.text.trim().replace(/\s+/g, " "));
+    }
+  }
+  return labels.join("\n").slice(0, 6000);
 }
 
 type Region = { minX: number; minY: number; maxX: number; maxY: number };
-
-const EXAMPLES = [
-  "User login flowchart",
-  "Microservices architecture",
-  "Database ERD for a blog",
-  "CI/CD pipeline diagram",
-];
 
 function asRegion(shape: unknown): Region | null {
   const s = shape as Record<string, unknown>;
@@ -160,11 +199,28 @@ export function AiChatModal({
   messages,
   isGenerating,
   onSend,
+  onAsk,
+  onRegenerate,
+  onImage,
+  onClear,
 }: AiChatModalProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const src = useAiSources(roomId, httpBackend, apiClient);
+
+  /** Route picked/dropped files: images become diagrams, documents become sources. */
+  const handleFiles = (files: FileList | File[]) => {
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith("image/")) onImage(file);
+      else void src.addFile(file); // unsupported types surface a message
+    }
+  };
 
   useEffect(() => {
     if (isOpen) setTimeout(() => textareaRef.current?.focus(), 80);
@@ -203,7 +259,18 @@ export function AiChatModal({
       textareaRef.current.style.height = "auto";
     }
 
+    const routed = detectIntent(text);
+    if (!routed.text) return;
     const currentShapes = getCurrentShapes();
+    if (routed.intent === "ask") {
+      await onAsk(routed.text, boardOutline(currentShapes) || undefined);
+      return;
+    }
+    await drawPrompt(routed.text, currentShapes);
+  };
+
+  /** Build the draw prompt (with free-space hints) and send it. */
+  const drawPrompt = async (text: string, currentShapes: unknown[]) => {
     let finalPrompt = text;
     // Send large-area occupancy regions so backend can place new diagram in a truly empty zone.
     if (currentShapes.length > 0) {
@@ -243,196 +310,236 @@ export function AiChatModal({
 
   if (!isOpen) return null;
 
-  // Theme tokens
-  const bg = isDark ? "bg-[#0f0f18]" : "bg-white";
-  const border = isDark ? "border-white/10" : "border-slate-200";
-  const subtext = isDark ? "text-white/40" : "text-slate-400";
-  const headerBg = isDark
-    ? "bg-gradient-to-r from-[#1a1740] to-[#1a1840]"
-    : "bg-gradient-to-r from-indigo-50 to-violet-50";
-  const headerTitle = isDark ? "text-white" : "text-indigo-900";
-  const dividerBg = isDark ? "bg-white/8" : "bg-slate-100";
-  const inputBg = isDark
-    ? "bg-white/6 border-white/10 focus-within:border-indigo-400/40 focus-within:ring-indigo-500/10"
-    : "bg-slate-50 border-slate-200 focus-within:border-indigo-400 focus-within:ring-indigo-100";
-  const inputText = isDark
-    ? "text-white placeholder-white/30"
-    : "text-slate-900 placeholder-slate-400";
-  const closeBtnCls = isDark
-    ? "text-white/40 hover:bg-white/10 hover:text-white"
-    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700";
-  const chipCls = isDark
-    ? "border-indigo-400/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
-    : "border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100";
-  const tipText = isDark ? "text-white/25" : "text-slate-400";
-  const msgAreaBg = isDark ? "bg-[#0f0f18]" : "bg-slate-50/60";
+  const d = isDark;
+  const surface = d ? "bg-[#12121c]" : "bg-white";
+  const border = d ? "border-white/10" : "border-slate-200";
+  const muted = d ? "text-white/45" : "text-slate-500";
+  const faint = d ? "text-white/30" : "text-slate-400";
+  const ghostBtn = d
+    ? "text-white/60 hover:bg-white/10 hover:text-white"
+    : "text-slate-500 hover:bg-slate-100 hover:text-slate-800";
+  const chip = d
+    ? "border-white/10 bg-white/5 text-white/75 hover:border-indigo-400/40 hover:bg-indigo-500/15 hover:text-white"
+    : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700";
+  const aiBubble = d
+    ? "bg-white/[0.06] text-white/90 ring-1 ring-white/10"
+    : "bg-white text-slate-700 ring-1 ring-slate-200 shadow-sm";
+  const sourceCount = src.sources.length;
+
+  const quickPrompts = [
+    { icon: "⎇", label: "User login flowchart" },
+    { icon: "◫", label: "Microservices architecture" },
+    { icon: "▤", label: "Database ERD for a blog" },
+    { icon: "∞", label: "CI/CD pipeline diagram" },
+  ];
+
+  const pick = (text: string) => {
+    setInput(text);
+    setTimeout(() => textareaRef.current?.focus(), 30);
+  };
 
   return (
     <div
       ref={panelRef}
-      className={`absolute right-0 top-14 z-50 flex w-[min(94vw,390px)] flex-col rounded-2xl border shadow-2xl ${bg} ${border}`}
-      style={{ maxHeight: "min(580px, calc(100vh - 6rem))" }}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        dragDepth.current = 0;
+        setDragging(false);
+        handleFiles(e.dataTransfer.files);
+      }}
+      className={`absolute right-0 top-14 z-50 flex w-[min(94vw,420px)] flex-col overflow-hidden rounded-3xl border shadow-[0_24px_70px_-12px_rgba(0,0,0,0.55)] ${surface} ${border}`}
+      style={{ height: "min(640px, calc(100vh - 6rem))" }}
     >
-      {/* ── Header (chat app style) ── */}
-      <div
-        className={`flex shrink-0 items-center gap-3 rounded-t-2xl px-4 py-3 ${headerBg} border-b ${border}`}
-      >
-        {/* AI avatar */}
+      {/* ── Header ── */}
+      <div className={`flex shrink-0 items-center gap-3 border-b px-4 py-3 ${border}`}>
         <div
-          className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm text-white shadow-sm"
-          style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm text-white shadow-md"
+          style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}
         >
           ✦
-          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-400" />
         </div>
-        <div className="flex-1 min-w-0">
-          <p
-            className={`text-sm font-semibold leading-tight truncate ${headerTitle}`}
-          >
+        <div className="min-w-0 flex-1">
+          <p className={`truncate text-sm font-semibold leading-tight ${d ? "text-white" : "text-slate-900"}`}>
             Canvas AI
           </p>
-          <div
-            className={`text-[10px] leading-tight ${isDark ? "text-indigo-300/50" : "text-indigo-400"}`}
-          >
+          <p className={`flex items-center gap-1.5 truncate text-[11px] leading-tight ${muted}`}>
             {isGenerating ? (
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 animate-pulse-scale rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
-                <span className="font-medium animate-pulse">Generating…</span>
-              </span>
+              <>
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                Working…
+              </>
+            ) : sourceCount > 0 ? (
+              `Answers & diagrams · ${sourceCount} source${sourceCount > 1 ? "s" : ""}`
             ) : (
-              <span className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/50" />
-                online
-              </span>
+              "Answers & diagrams"
             )}
-          </div>
+          </p>
         </div>
+        {messages.length > 0 && (
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={isGenerating}
+            title="Clear conversation"
+            className={`grid h-8 w-8 place-items-center rounded-full transition disabled:opacity-40 ${ghostBtn}`}
+          >
+            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 6h12M8 6V4h4v2M6 6l.7 10h6.6L14 6" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           onClick={onClose}
-          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs transition ${closeBtnCls}`}
+          title="Close"
+          className={`grid h-8 w-8 place-items-center rounded-full transition ${ghostBtn}`}
         >
-          ✕
+          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <path d="M5 5l10 10M15 5L5 15" />
+          </svg>
         </button>
       </div>
 
-      {/* ── Messages area ── */}
-      <div
-        className={`flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-4 ${msgAreaBg}`}
-      >
+      {/* ── Messages ── */}
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 ? (
-          /* Empty state */
-          <div className="flex flex-col gap-3">
-            {/* AI greeting bubble */}
-            <div className="flex items-end gap-2">
+          <div className="flex flex-1 flex-col justify-center gap-5 py-2">
+            <div className="text-center">
               <div
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] text-white"
-                style={{
-                  background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-                }}
+                className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl text-xl text-white shadow-lg"
+                style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}
               >
                 ✦
               </div>
-              <div
-                className={`max-w-[88%] rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-[13px] leading-relaxed ${isDark ? "bg-[#1e1e30] text-white/80" : "bg-white text-slate-700 shadow-sm border border-slate-100"}`}
-              >
-                Hi! Describe any diagram and I&apos;ll draw it on your canvas.
-                Try an example below:
-              </div>
+              <p className={`text-[15px] font-semibold ${d ? "text-white" : "text-slate-900"}`}>
+                What are we making?
+              </p>
+              <p className={`mx-auto mt-1 max-w-[280px] text-[12px] leading-relaxed ${muted}`}>
+                Describe a diagram and I&apos;ll draw it, or ask a question. Add
+                files with <span className="font-semibold">+</span> to ground the
+                answers in your own material.
+              </p>
             </div>
-            <div className="ml-8 flex flex-wrap gap-1.5">
-              {EXAMPLES.map((ex) => (
+            <div className="grid grid-cols-2 gap-2">
+              {quickPrompts.map((q) => (
                 <button
-                  key={ex}
+                  key={q.label}
                   type="button"
-                  onClick={() => {
-                    setInput(ex);
-                    setTimeout(() => textareaRef.current?.focus(), 50);
-                  }}
-                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${chipCls}`}
+                  onClick={() => pick(q.label)}
+                  className={`flex items-center gap-2 rounded-2xl border px-3 py-2.5 text-left text-[12px] font-medium transition ${chip}`}
                 >
-                  {ex}
+                  <span className="text-base leading-none text-indigo-400">{q.icon}</span>
+                  {q.label}
                 </button>
               ))}
             </div>
-            <p className={`ml-8 mt-1 text-[11px] ${tipText}`}>
-              You can also say &quot;improve colors&quot; or &quot;add a caching
-              layer&quot; to modify existing shapes.
-            </p>
           </div>
         ) : (
           messages.map((msg, i) => {
             const isUser = msg.role === "user";
-            const prevSameRole = i > 0 && messages[i - 1]?.role === msg.role;
+            const prevSame = i > 0 && messages[i - 1]?.role === msg.role;
+            const isLast = i === messages.length - 1;
             return (
               <div
                 key={msg.id}
-                className={`flex items-end gap-2 ${isUser ? "flex-row-reverse" : "flex-row"} ${prevSameRole ? "mt-0.5" : "mt-2"}`}
+                className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${prevSame ? "mt-0.5" : "mt-3"}`}
               >
-                {/* Avatar — only show on first of a group */}
-                {!isUser && (
-                  <div
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] text-white ${prevSameRole ? "invisible" : ""}`}
-                    style={{
-                      background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-                    }}
-                  >
-                    ✦
+                <div
+                  className={`max-w-[88%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed [overflow-wrap:anywhere] ${
+                    isUser
+                      ? "rounded-br-md text-white shadow-sm"
+                      : msg.isError
+                        ? d
+                          ? "rounded-bl-md bg-red-500/12 text-red-300 ring-1 ring-red-400/25"
+                          : "rounded-bl-md bg-red-50 text-red-700 ring-1 ring-red-200"
+                        : `rounded-bl-md ${aiBubble}`
+                  }`}
+                  style={
+                    isUser
+                      ? { background: "linear-gradient(135deg,#6366f1,#7c3aed)" }
+                      : undefined
+                  }
+                >
+                  {msg.isGenerating ? (
+                    <span className={`flex items-center gap-2.5 ${muted}`}>
+                      <span className="flex gap-1">
+                        {[0, 0.15, 0.3].map((delay) => (
+                          <span
+                            key={delay}
+                            className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400"
+                            style={{ animation: `bounce 0.8s ${delay}s ease-in-out infinite` }}
+                          />
+                        ))}
+                      </span>
+                      {msg.kind === "ask" ? "Thinking…" : msg.text}
+                    </span>
+                  ) : (
+                    <>
+                      {!isUser && !msg.isError && msg.shapeCount !== undefined && "✓ "}
+                      {msg.text}
+                    </>
+                  )}
+                </div>
+
+                {msg.citations && msg.citations.length > 0 && (
+                  <div className="mt-1.5 flex max-w-[92%] flex-wrap gap-1">
+                    {msg.citations.map((c) => (
+                      <span
+                        key={c.n}
+                        title={c.snippet}
+                        className={`inline-flex max-w-full items-center gap-1 truncate rounded-full border px-2 py-0.5 text-[10px] ${chip}`}
+                      >
+                        <b className="text-indigo-400">{c.n}</b>
+                        <span className="truncate">{c.sourceName}</span>
+                      </span>
+                    ))}
                   </div>
                 )}
 
-                <div className="flex max-w-[82%] flex-col gap-0.5">
-                  {/* Bubble */}
-                  <div
-                    className={`rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
-                      isUser
-                        ? "rounded-br-sm bg-linear-to-br from-indigo-500 to-violet-600 text-white"
-                        : msg.isGenerating
-                          ? isDark
-                            ? "rounded-bl-sm bg-[#1e1e30] text-white/60"
-                            : "rounded-bl-sm bg-white text-slate-500 shadow-sm border border-slate-100"
-                          : msg.isError
-                            ? isDark
-                              ? "rounded-bl-sm bg-red-500/15 text-red-300 border border-red-400/20"
-                              : "rounded-bl-sm bg-red-50 text-red-700 border border-red-200"
-                            : isDark
-                              ? "rounded-bl-sm bg-emerald-500/12 text-emerald-200 border border-emerald-400/20"
-                              : "rounded-bl-sm bg-white text-slate-700 shadow-sm border border-slate-100"
-                    }`}
-                  >
-                    {msg.isGenerating ? (
-                      <span className="flex items-center gap-3">
-                        <span className="flex gap-1">
-                          {[0, 0.15, 0.3].map((d) => (
-                            <span
-                              key={d}
-                              className="inline-block h-2 w-2 rounded-full bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.4)]"
-                              style={{
-                                animation: `bounce 0.8s ${d}s ease-in-out infinite`,
-                              }}
-                            />
-                          ))}
-                        </span>
-                        <span className="font-medium">Generating…</span>
-                      </span>
-                    ) : (
-                      <span>
-                        {!isUser &&
-                          !msg.isError &&
-                          msg.shapeCount !== undefined &&
-                          "✓ "}
-                        {!isUser && msg.isError && "⚠ "}
-                        {msg.text}
-                      </span>
+                {!isUser && isLast && !msg.isGenerating && !msg.isError && (
+                  <div className="mt-1.5 flex gap-1.5">
+                    {msg.kind === "ask" && messages[i - 1]?.role === "user" && (
+                      <button
+                        type="button"
+                        disabled={isGenerating}
+                        onClick={() =>
+                          void drawPrompt(
+                            detectIntent(messages[i - 1]!.text).text,
+                            getCurrentShapes(),
+                          )
+                        }
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40 ${chip}`}
+                      >
+                        ✎ Draw this
+                      </button>
+                    )}
+                    {msg.prompt && (
+                      <button
+                        type="button"
+                        disabled={isGenerating}
+                        onClick={() => onRegenerate(msg.id)}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40 ${chip}`}
+                      >
+                        ↻ Regenerate
+                      </button>
                     )}
                   </div>
-                  {/* Timestamp */}
-                  <span
-                    className={`px-1 text-[10px] ${isUser ? "text-right" : "text-left"} ${subtext}`}
-                  >
-                    {msg.time}
-                  </span>
-                </div>
+                )}
+                <span className={`mt-1 px-1 text-[10px] ${faint}`}>{msg.time}</span>
               </div>
             );
           })
@@ -440,24 +547,77 @@ export function AiChatModal({
         <div ref={scrollEndRef} />
       </div>
 
-      {/* ── Input bar ── */}
-      <AiSourcesPanel
-        roomId={roomId}
-        isDark={isDark}
-        httpBackend={httpBackend}
-        apiClient={apiClient}
-        onPickQuestion={(q) => {
-          setInput(q);
-          setTimeout(() => textareaRef.current?.focus(), 50);
-        }}
-      />
+      {/* ── Suggested questions from the sources ── */}
+      {sourceCount > 0 && (src.loadingQuestions || src.questions.length > 0) && (
+        <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {src.loadingQuestions && src.questions.length === 0 && (
+            <span className={`shrink-0 text-[11px] ${faint}`}>Thinking of ideas from your sources…</span>
+          )}
+          {src.questions.map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => pick(q)}
+              title={q}
+              className={`max-w-[240px] shrink-0 truncate rounded-full border px-3 py-1 text-[11px] transition ${chip}`}
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div
-        className={`shrink-0 border-t px-3 pb-3 pt-2.5 ${dividerBg.replace("bg-", "border-")}`}
-      >
+      {/* ── Composer ── */}
+      <div className="shrink-0 px-3 pb-3">
         <div
-          className={`flex items-end gap-2 rounded-2xl border px-3 py-2 transition-all focus-within:ring-2 ${inputBg}`}
+          className={`rounded-2xl border transition-all focus-within:ring-2 ${
+            d
+              ? "border-white/10 bg-white/[0.05] focus-within:border-indigo-400/50 focus-within:ring-indigo-500/15"
+              : "border-slate-200 bg-slate-50 focus-within:border-indigo-400 focus-within:ring-indigo-100"
+          }`}
         >
+          {(sourceCount > 0 || src.pending.length > 0) && (
+            <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+              {src.sources.map((s) => (
+                <span
+                  key={s.id}
+                  className={`group inline-flex max-w-[170px] items-center gap-1.5 rounded-lg border py-1 pl-2 pr-1 text-[11px] ${chip}`}
+                  title={`${s.name} · ${Math.max(1, Math.round(s.charCount / 1000))}k chars`}
+                >
+                  <svg viewBox="0 0 16 16" className="h-3 w-3 shrink-0 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+                    <path d="M3.5 1.5h6L13 5v9.5H3.5z M9.5 1.5V5H13" />
+                  </svg>
+                  <span className="truncate">{s.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => void src.remove(s.id)}
+                    aria-label={`Remove ${s.name}`}
+                    className={`grid h-4 w-4 shrink-0 place-items-center rounded-full transition hover:bg-red-500/20 hover:text-red-400 ${faint}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {src.pending.map((name, idx) => (
+                <span
+                  key={`${name}-${idx}`}
+                  className={`inline-flex max-w-[170px] items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] ${chip}`}
+                >
+                  <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-indigo-400/30 border-t-indigo-400" />
+                  <span className="truncate">{name}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {src.error && (
+            <p className="px-3 pt-2 text-[11px] text-red-400">
+              {src.error}{" "}
+              <button type="button" onClick={src.clearError} className="underline">
+                dismiss
+              </button>
+            </p>
+          )}
+
           <textarea
             ref={textareaRef}
             id="ai-prompt-input"
@@ -467,40 +627,139 @@ export function AiChatModal({
               setInput(e.target.value);
               const el = e.target;
               el.style.height = "auto";
-              el.style.height = `${Math.min(el.scrollHeight, 88)}px`;
+              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
             }}
             onKeyDown={handleKeyDown}
-            placeholder={isGenerating ? "Generating…" : "Ask Canvas AI…"}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files);
+              if (files.length > 0) {
+                e.preventDefault();
+                handleFiles(files);
+              }
+            }}
+            placeholder={isGenerating ? "Working…" : "Ask a question or describe a diagram…"}
             disabled={isGenerating}
-            className={`flex-1 resize-none bg-transparent text-[13px] outline-none disabled:opacity-40 ${inputText}`}
-            style={{ minHeight: "24px", maxHeight: "88px" }}
+            className={`block w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-[13px] outline-none disabled:opacity-40 ${
+              d ? "text-white placeholder-white/30" : "text-slate-900 placeholder-slate-400"
+            }`}
+            style={{ minHeight: "28px", maxHeight: "120px" }}
           />
-          <button
-            id="ai-generate-button"
-            type="button"
-            onClick={() => void handleSend()}
-            disabled={!input.trim() || !roomId || isGenerating}
-            title="Send (Enter)"
-            className="mb-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white transition-all disabled:cursor-not-allowed disabled:opacity-25"
-            style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}
-          >
-            {isGenerating ? (
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            ) : (
-              <svg
-                viewBox="0 0 20 20"
-                className="h-3.5 w-3.5"
-                fill="currentColor"
-              >
-                <path d="M3.5 2 L15.5 10 L3.5 18 Z" />
+
+          <div className="relative flex items-center justify-between px-2 pb-2">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="Add files"
+              aria-expanded={menuOpen}
+              title="Add files or an image"
+              className={`grid h-8 w-8 place-items-center rounded-full border transition ${
+                menuOpen ? "border-indigo-400/50 bg-indigo-500/15 text-indigo-400" : `${border} ${ghostBtn}`
+              }`}
+            >
+              <svg viewBox="0 0 20 20" className={`h-4 w-4 transition-transform ${menuOpen ? "rotate-45" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M10 4v12M4 10h12" />
               </svg>
+            </button>
+
+            {menuOpen && (
+              <div
+                className={`absolute bottom-11 left-1 z-10 w-60 overflow-hidden rounded-2xl border p-1 shadow-xl ${surface} ${border}`}
+              >
+                {[
+                  {
+                    label: "Upload documents",
+                    hint: "PDF, Word, Excel, PowerPoint, text…",
+                    run: () => fileInputRef.current?.click(),
+                  },
+                  {
+                    label: "Use text on the board",
+                    hint: "Save labels as a source",
+                    run: () => {
+                      const text = boardOutline(getCurrentShapes());
+                      if (text.trim().length < 20) return;
+                      void src.addText("Board text", text);
+                    },
+                  },
+                  {
+                    label: "Image to diagram",
+                    hint: "Recreate a photo or screenshot",
+                    run: () => {
+                      const el = document.createElement("input");
+                      el.type = "file";
+                      el.accept = "image/*";
+                      el.onchange = () => el.files?.[0] && onImage(el.files[0]);
+                      el.click();
+                    },
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      item.run();
+                    }}
+                    className={`flex w-full flex-col rounded-xl px-3 py-2 text-left transition ${
+                      d ? "hover:bg-white/8" : "hover:bg-slate-100"
+                    }`}
+                  >
+                    <span className={`text-[12px] font-medium ${d ? "text-white/90" : "text-slate-800"}`}>
+                      {item.label}
+                    </span>
+                    <span className={`text-[10px] ${faint}`}>{item.hint}</span>
+                  </button>
+                ))}
+              </div>
             )}
-          </button>
+
+            <span className={`text-[10px] ${faint}`}>
+              {input.trim() ? "Enter to send · Shift+Enter for newline" : "Drop files here · /draw or /ask to choose"}
+            </span>
+
+            <button
+              id="ai-generate-button"
+              type="button"
+              onClick={() => void handleSend()}
+              disabled={!input.trim() || !roomId || isGenerating}
+              title="Send (Enter)"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-white shadow-sm transition-all enabled:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-30"
+              style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}
+            >
+              {isGenerating ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              ) : (
+                <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 16V4M5 9l5-5 5 5" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
-        <p className={`mt-1 text-center text-[10px] ${subtext}`}>
-          Enter · Shift+Enter for newline
-        </p>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.markdown,.csv,.json,.log,.html,.htm,.xml,.yml,.yaml,text/*"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) handleFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
       </div>
+
+      {/* ── Drop overlay ── */}
+      {dragging && (
+        <div
+          className={`pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-indigo-400/70 backdrop-blur-sm ${
+            d ? "bg-[#12121c]/85" : "bg-white/85"
+          }`}
+        >
+          <span className="text-3xl text-indigo-400">⇪</span>
+          <p className={`text-sm font-semibold ${d ? "text-white" : "text-slate-800"}`}>Drop to add</p>
+          <p className={`text-[11px] ${muted}`}>Documents become sources · images become diagrams</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -57,6 +57,7 @@ model Room {
   publicToken String? @unique
   accessRequests RoomAccessRequest[]
   sources   RoomSource[]
+  aiChats   AiChat[]
 
   @@unique([adminId, slug])
 }
@@ -191,4 +192,15 @@ model SourceChunk {
 
   @@index([roomId])
   @@index([sourceId, position])
+}
+
+// One AI assistant conversation per user per canvas (private to that user).
+model AiChat {
+  roomId    Int
+  userId    String
+  messages  Json
+  updatedAt DateTime @updatedAt
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@id([roomId, userId])
 }
