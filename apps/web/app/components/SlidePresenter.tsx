@@ -60,7 +60,7 @@ export function SlidePresenter({ slides, startIndex, isDark, goTo, onExit }: Sli
   const surface = isDark
     ? "border-white/20 bg-black/75 text-white"
     : "border-slate-300 bg-white/90 text-slate-800";
-  const button = "grid h-9 w-9 place-items-center rounded-full text-lg transition hover:bg-blue-500/25 disabled:opacity-30";
+  const button = "grid h-9 w-9 place-items-center rounded-full text-lg transition hover:bg-paper-2 disabled:opacity-30";
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-20 z-40 flex justify-center px-4">

@@ -15,7 +15,15 @@ import { connectorAnchors, layoutLayered, type LayoutDirection } from "./layout"
 
 export type MermaidNodeKind = "rect" | "circle" | "rhombus";
 
-export type MermaidNode = { id: string; label: string; kind: MermaidNodeKind };
+export type DiagramTone = "blue" | "green" | "amber" | "violet" | "red" | "sky" | "slate";
+
+export type MermaidNode = {
+  id: string;
+  label: string;
+  kind: MermaidNodeKind;
+  /** Optional colour role (set by structured AI diagrams; Mermaid import leaves it unset). */
+  tone?: DiagramTone;
+};
 export type MermaidEdge = {
   from: string;
   to: string;
@@ -282,6 +290,20 @@ export type BuildOptions = {
   /** Canvas-space point the diagram is centred on. */
   center: { x: number; y: number };
   createId?: () => string;
+  /** Crisp strokes and print-friendly label colours instead of the sketchy default. */
+  clean?: boolean;
+};
+
+// Label colour is dark on every tone: in light mode fills render as soft tints, and
+// the renderer swaps labels to the light ink colour itself in dark mode.
+const TONES: Record<DiagramTone, { fill: string; stroke: string; text: string }> = {
+  blue: { fill: "#3B82F6", stroke: "#1E40AF", text: "#14213d" },
+  green: { fill: "#10B981", stroke: "#047857", text: "#0b2e22" },
+  amber: { fill: "#F59E0B", stroke: "#B45309", text: "#2b1d03" },
+  violet: { fill: "#8B5CF6", stroke: "#5B21B6", text: "#25134d" },
+  red: { fill: "#EF4444", stroke: "#991B1B", text: "#4a0f0f" },
+  sky: { fill: "#06B6D4", stroke: "#0E7490", text: "#04262c" },
+  slate: { fill: "#64748B", stroke: "#334155", text: "#18202c" },
 };
 
 /** Converts a parsed diagram into laid-out canvas shapes (nodes, labels, connectors). */
@@ -327,12 +349,16 @@ export function buildShapesFromDiagram(
     shapeIdByNode.set(node.id, id);
     boxByNode.set(node.id, { x, y, w: size.width, h: size.height });
 
+    const palette = node.tone
+      ? TONES[node.tone]
+      : { ...KIND_STYLE[node.kind], text: "#FFFFFF" };
     const style = {
-      ...KIND_STYLE[node.kind],
+      fill: palette.fill,
+      stroke: palette.stroke,
       fillStyle: "solid" as const,
       strokeStyle: "solid" as const,
       strokeWidth: 2,
-      roughness: 1,
+      roughness: options.clean ? 0 : 1,
       opacity: 100,
     };
 
@@ -372,8 +398,8 @@ export function buildShapesFromDiagram(
       height: textHeight,
       text: node.label,
       fontSize: FONT_SIZE,
-      stroke: "#FFFFFF",
-      roughness: 1,
+      stroke: palette.text,
+      roughness: options.clean ? 0 : 1,
       strokeStyle: "solid",
     });
   }
@@ -406,10 +432,10 @@ export function buildShapesFromDiagram(
       y2,
       startBinding: { shapeId: fromId, relX: start[0]!, relY: start[1]! },
       endBinding: { shapeId: toId, relX: end[0]!, relY: end[1]! },
-      stroke: "#94A3B8",
+      stroke: options.clean ? "#7d8799" : "#94A3B8",
       strokeStyle: edge.style === "dashed" ? "dashed" : "solid",
       strokeWidth: 2,
-      roughness: 1,
+      roughness: options.clean ? 0 : 1,
       opacity: 100,
     });
 
@@ -424,8 +450,8 @@ export function buildShapesFromDiagram(
         height: 22,
         text: edge.label,
         fontSize: 14,
-        stroke: "#CBD5E1",
-        roughness: 1,
+        stroke: options.clean ? "#6b665a" : "#CBD5E1",
+        roughness: options.clean ? 0 : 1,
         strokeStyle: "solid",
       });
     }

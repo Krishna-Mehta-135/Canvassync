@@ -30,14 +30,12 @@ const ALIGN_BUTTONS: Array<{ mode: AlignMode; label: string; Icon: LucideIcon }>
 ];
 
 /** Align / distribute controls, shown while two or more shapes are selected. */
-export function ArrangeBar({ selectedCount, isDark, onAlign, onDistribute }: ArrangeBarProps) {
+export function ArrangeBar({ selectedCount, onAlign, onDistribute }: ArrangeBarProps) {
   if (selectedCount < 2) return null;
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717]/92 text-white/90"
-    : "border-slate-300/80 bg-white/92 text-slate-800";
+  const surface = "border-rule-strong bg-surface text-ink-2";
   const button =
-    "grid h-8 w-8 place-items-center rounded-lg text-base transition hover:bg-blue-500/20 disabled:opacity-35 disabled:hover:bg-transparent";
+    "grid h-8 w-8 place-items-center rounded-lg text-base transition hover:bg-paper-2 disabled:opacity-35 disabled:hover:bg-transparent";
 
   return (
     <div

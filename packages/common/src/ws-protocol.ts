@@ -92,6 +92,8 @@ export type EphemeralEvent =
   // Voice chat presence (who is in the call). The server tracks it and replays
   // it to late joiners; audio itself is peer-to-peer WebRTC.
   | { kind: "voice"; on: boolean }
+  // Group-chat "is typing…"; receivers expire it on their own.
+  | { kind: "typing"; on: boolean }
   // WebRTC signaling (offer/answer/ICE as a JSON string) delivered only to `to`.
   | { kind: "rtc"; to: string; data: string }
   // x/y are the canvas-space point at the centre of the sender's screen, so
@@ -318,6 +320,8 @@ export const EphemeralEventSchema = z.discriminatedUnion("kind", [
     text: z.string().trim().max(140).nullable(),
   }),
   z.object({ kind: z.literal("voice"), on: z.boolean() }),
+  // "is typing…" in the group chat; receivers expire it on their own if no refresh arrives.
+  z.object({ kind: z.literal("typing"), on: z.boolean() }),
   z.object({
     kind: z.literal("rtc"),
     to: z.string().min(1).max(200),

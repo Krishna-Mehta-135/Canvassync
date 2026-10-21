@@ -35,38 +35,23 @@ const roughCanvasCache = new WeakMap<
   ReturnType<typeof rough.canvas>
 >();
 
+// Warm "drafting paper" surfaces: they match the app chrome tokens in globals.css.
+const PAPER_DARK = {
+  background: "#15140e",
+  stroke: "#efeadc",
+  grid: "rgba(239, 234, 220, 0.16)",
+};
+const PAPER_LIGHT = {
+  background: "#f3efe4",
+  stroke: "#17150f",
+  grid: "rgba(23, 21, 15, 0.20)",
+};
+
 function getThemePalette() {
-  if (typeof document === "undefined") {
-    return {
-      background: "#070b14",
-      backdropGlowA: "rgba(59, 130, 246, 0.18)",
-      backdropGlowB: "rgba(139, 92, 246, 0.12)",
-      backdropVeil: "rgba(255, 255, 255, 0.02)",
-      stroke: "#f8fafc",
-      grid: "rgba(148, 163, 184, 0.12)",
-    };
-  }
-
-  const theme = document.documentElement.getAttribute("data-theme");
-  if (theme === "light") {
-    return {
-      background: "#f4f7fc",
-      backdropGlowA: "rgba(59, 130, 246, 0.10)",
-      backdropGlowB: "rgba(16, 185, 129, 0.07)",
-      backdropVeil: "rgba(255, 255, 255, 0.45)",
-      stroke: "#1f2937",
-      grid: "rgba(100, 116, 139, 0.18)",
-    };
-  }
-
-  return {
-    background: "#070b14",
-    backdropGlowA: "rgba(59, 130, 246, 0.18)",
-    backdropGlowB: "rgba(139, 92, 246, 0.12)",
-    backdropVeil: "rgba(255, 255, 255, 0.02)",
-    stroke: "#f8fafc",
-    grid: "rgba(148, 163, 184, 0.12)",
-  };
+  if (typeof document === "undefined") return PAPER_DARK;
+  return document.documentElement.getAttribute("data-theme") === "light"
+    ? PAPER_LIGHT
+    : PAPER_DARK;
 }
 
 type SelectionBox = {
@@ -639,11 +624,9 @@ function drawText(
   ctx.save();
   ctx.globalAlpha = getShapeOpacity(shape);
   // File intent: Use white text in dark mode for better contrast, otherwise use the shape's stroke color
-  const isDarkMode =
-    document.documentElement.getAttribute("data-theme") === "dark" ||
-    getThemePalette().background === "#070b14";
+  const isDarkMode = getThemePalette() === PAPER_DARK;
   ctx.fillStyle = isDarkMode
-    ? "#ffffff"
+    ? "#efeadc"
     : shape.stroke || getThemePalette().stroke;
   const { fittedFontSize, lineHeight, visibleLines } = getTextRenderMetrics(
     ctx,
@@ -695,42 +678,21 @@ function drawInfiniteGrid(
   pixelRatio: number,
   gridColor: string,
 ) {
-  const targetScreenStep = 48;
+  // A dot grid reads as drafting paper and stays quiet behind content.
+  const step = 24;
   const screenWidth = canvas.width / pixelRatio;
   const screenHeight = canvas.height / pixelRatio;
-
-  const offsetX =
-    ((viewport.x % targetScreenStep) + targetScreenStep) % targetScreenStep;
-  const offsetY =
-    ((viewport.y % targetScreenStep) + targetScreenStep) % targetScreenStep;
+  const offsetX = ((viewport.x % step) + step) % step;
+  const offsetY = ((viewport.y % step) + step) % step;
 
   ctx.save();
-  const isLightTheme =
-    typeof document !== "undefined" &&
-    document.documentElement.getAttribute("data-theme") === "light";
-  if (isLightTheme) {
-    ctx.strokeStyle = "rgba(59, 130, 246, 0.15)";
-  } else {
-    ctx.strokeStyle = gridColor;
+  ctx.fillStyle = gridColor;
+  const size = 1.25;
+  for (let x = offsetX; x <= screenWidth; x += step) {
+    for (let y = offsetY; y <= screenHeight; y += step) {
+      ctx.fillRect(Math.round(x) - size / 2, Math.round(y) - size / 2, size, size);
+    }
   }
-  ctx.lineWidth = 1 / pixelRatio;
-
-  for (let x = offsetX; x <= screenWidth; x += targetScreenStep) {
-    const snappedX = Math.round(x * pixelRatio) / pixelRatio;
-    ctx.beginPath();
-    ctx.moveTo(snappedX, 0);
-    ctx.lineTo(snappedX, screenHeight);
-    ctx.stroke();
-  }
-
-  for (let y = offsetY; y <= screenHeight; y += targetScreenStep) {
-    const snappedY = Math.round(y * pixelRatio) / pixelRatio;
-    ctx.beginPath();
-    ctx.moveTo(0, snappedY);
-    ctx.lineTo(screenWidth, snappedY);
-    ctx.stroke();
-  }
-
   ctx.restore();
 }
 
@@ -1056,45 +1018,6 @@ export function render(
     ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     ctx.fillStyle = palette.background;
 
-    // Base field: keep the grid readable, but add the softer landing-page atmosphere underneath.
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-    const topLeftGlow = ctx.createRadialGradient(
-      canvasWidth * 0.16,
-      canvasHeight * 0.12,
-      0,
-      canvasWidth * 0.16,
-      canvasHeight * 0.12,
-      Math.max(canvasWidth, canvasHeight) * 0.62,
-    );
-    topLeftGlow.addColorStop(0, palette.backdropGlowA);
-    topLeftGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = topLeftGlow;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-    const bottomRightGlow = ctx.createRadialGradient(
-      canvasWidth * 0.84,
-      canvasHeight * 0.86,
-      0,
-      canvasWidth * 0.84,
-      canvasHeight * 0.86,
-      Math.max(canvasWidth, canvasHeight) * 0.72,
-    );
-    bottomRightGlow.addColorStop(0, palette.backdropGlowB);
-    bottomRightGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = bottomRightGlow;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-    const sheen = ctx.createLinearGradient(0, 0, 0, canvasHeight);
-    sheen.addColorStop(0, palette.backdropVeil);
-    sheen.addColorStop(0.58, "rgba(255, 255, 255, 0)");
-    sheen.addColorStop(
-      1,
-      palette.background === "#f4f7fc"
-        ? "rgba(255, 255, 255, 0.30)"
-        : "rgba(2, 6, 23, 0.20)",
-    );
-    ctx.fillStyle = sheen;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
     if (showGrid) {

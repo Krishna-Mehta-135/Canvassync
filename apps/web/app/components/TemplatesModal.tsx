@@ -28,13 +28,9 @@ type TemplatesModalProps = {
   onClose: () => void;
 };
 
-export function TemplatesModal({ isDark, onPick, onClose }: TemplatesModalProps) {
-  const surface = isDark
-    ? "border-white/15 bg-[#171717] text-white/90"
-    : "border-slate-300 bg-white text-slate-800";
-  const card = isDark
-    ? "border-white/10 bg-white/5 hover:bg-white/10"
-    : "border-slate-200 bg-slate-50 hover:bg-slate-100";
+export function TemplatesModal({ onPick, onClose }: TemplatesModalProps) {
+  const surface = "border-rule-strong bg-surface text-ink-2";
+  const card = "border-rule bg-paper-2 hover:bg-paper-2";
 
   return (
     <div
@@ -65,7 +61,7 @@ export function TemplatesModal({ isDark, onPick, onClose }: TemplatesModalProps)
               onClick={() => onPick(template.id)}
               className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${card}`}
             >
-              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-500">
+              <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-signal-soft text-signal">
                 {(() => {
                   const Icon = ICONS[template.id];
                   return <Icon className="h-5 w-5" aria-hidden />;

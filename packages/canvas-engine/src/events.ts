@@ -1351,6 +1351,8 @@ export function attachEvents(
       options: {
         padding?: number;
         preserveScale?: boolean;
+        /** Upper bound for the fitted zoom (default 4). */
+        maxScale?: number;
         smooth?: boolean;
         durationMs?: number;
       } = {},
@@ -1379,7 +1381,7 @@ export function attachEvents(
       const fitScaleY = (canvasHeight - safePadding * 2) / height;
       const fitScale = Math.max(
         0.2,
-        Math.min(4, Math.min(fitScaleX, fitScaleY)),
+        Math.min(options.maxScale ?? 4, Math.min(fitScaleX, fitScaleY)),
       );
       const nextScale = preserveScale ? viewport.scale : fitScale;
 

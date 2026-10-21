@@ -308,13 +308,13 @@ export function Minimap({ shapesRef, viewportRef, canvasRef, applyViewport, isDa
       const prominent = coverage < 0.22;
 
       if (prominent) {
-        ctx.fillStyle = isDark ? "rgba(2,6,23,0.45)" : "rgba(15,23,42,0.10)";
+        ctx.fillStyle = isDark ? "rgba(0,0,0,0.38)" : "rgba(23,21,15,0.12)";
         ctx.beginPath();
         ctx.rect(0, 0, WIDTH, HEIGHT);
         ctx.rect(rx, ry, rw, rh);
         ctx.fill("evenodd");
       }
-      ctx.strokeStyle = prominent ? "#3b82f6" : "rgba(96,165,250,0.55)";
+      ctx.strokeStyle = prominent ? "#d9421f" : "rgba(217,66,31,0.6)";
       ctx.lineWidth = prominent ? 1.5 : 1;
       if (!prominent) ctx.setLineDash([4, 3]);
       ctx.strokeRect(rx + 0.75, ry + 0.75, Math.max(2, rw - 1.5), Math.max(2, rh - 1.5));
@@ -344,10 +344,8 @@ export function Minimap({ shapesRef, viewportRef, canvasRef, applyViewport, isDa
 
   return (
     <div
-      className={`pointer-events-auto absolute right-4 top-[4.75rem] z-20 hidden overflow-hidden rounded-xl border shadow-lg backdrop-blur-xl sm:block ${
-        isDark
-          ? "border-white/10 bg-[#0f172a]/80 shadow-black/40"
-          : "border-slate-200 bg-white/85 shadow-slate-300/40"
+      className={`pointer-events-auto absolute right-4 top-[4.75rem] z-20 hidden overflow-hidden rounded-[8px] border shadow-[0_1px_0_var(--rule),0_12px_26px_-18px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:block ${
+        "border-rule-strong bg-surface"
       }`}
       style={{ width: WIDTH, height: HEIGHT }}
     >

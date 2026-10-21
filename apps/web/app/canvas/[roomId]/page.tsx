@@ -52,6 +52,8 @@ import { SlidePresenter } from "../../components/SlidePresenter";
 import { Minimap } from "../../components/Minimap";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
+import { CommandPalette, type PaletteCommand } from "../../components/CommandPalette";
+import { useTypingIndicators } from "../../../hooks/useTypingIndicators";
 
 const STYLE_SWATCHES = [
   "#1e1e1e",
@@ -830,7 +832,28 @@ function beautifyAiShapes(all: Shape[], newIds: ReadonlySet<string>): Shape[] {
   const fresh = all.filter((shape) => newIds.has(shape.id));
   if (fresh.length === 0) return all;
 
-  const styled = fresh.map((shape): Shape => {
+  // The model often drops a label a few px outside its box; bind those to the
+  // nearest node so they travel with it when the layout moves things.
+  const nodes = fresh.filter(
+    (shape) => shape.type === "rect" || shape.type === "rhombus" || shape.type === "circle",
+  );
+  const adopted = fresh.map((shape): Shape => {
+    if (shape.type !== "text" || shape.parentId) return shape;
+    const b = getShapeBounds(shape);
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    const slack = 28;
+    let best: { id: string; area: number } | null = null;
+    for (const node of nodes) {
+      const nb = getShapeBounds(node);
+      if (cx < nb.minX - slack || cx > nb.maxX + slack || cy < nb.minY - slack || cy > nb.maxY + slack) continue;
+      const area = (nb.maxX - nb.minX) * (nb.maxY - nb.minY);
+      if (!best || area < best.area) best = { id: node.id, area };
+    }
+    return best ? { ...shape, parentId: best.id } : shape;
+  });
+
+  const styled = adopted.map((shape): Shape => {
     if (shape.type === "freehand" || shape.type === "text") return shape;
     const filled = Boolean(shape.fill) && shape.fill !== "transparent";
     return {
@@ -1000,7 +1023,6 @@ function FillStyleTile({
   value,
   selected,
   onClick,
-  isDark,
 }: {
   value: NonNullable<Shape["fillStyle"]>;
   selected: boolean;
@@ -1009,18 +1031,16 @@ function FillStyleTile({
 }) {
   const base = "relative h-9 w-9 rounded-md border transition";
   const ring = selected
-    ? "border-indigo-500 ring-2 ring-indigo-300 dark:border-indigo-300 dark:ring-indigo-700"
-    : isDark
-      ? "border-white/15 hover:border-white/30"
-      : "border-slate-300 hover:border-slate-500";
-  const bg = isDark ? "bg-[#1e1e1e]" : "bg-white";
+    ? "border-ink ring-2 ring-signal/40"
+    : "border-rule-strong hover:border-ink-3";
+  const bg = "bg-surface";
 
   if (value === "solid") {
     return (
       <button
         type="button"
         onClick={onClick}
-        className={`${base} ${ring} ${isDark ? "bg-slate-200" : "bg-slate-700"}`}
+        className={`${base} ${ring} ${"bg-paper-2"}`}
         title="Solid"
       />
     );
@@ -1075,7 +1095,6 @@ function StrokeStyleTile({
   value,
   selected,
   onClick,
-  isDark,
 }: {
   value: NonNullable<Shape["strokeStyle"]>;
   selected: boolean;
@@ -1083,10 +1102,8 @@ function StrokeStyleTile({
   isDark: boolean;
 }) {
   const border = selected
-    ? "border-indigo-500 ring-2 ring-indigo-300 dark:border-indigo-300 dark:ring-indigo-700"
-    : isDark
-      ? "border-white/15 hover:border-white/30"
-      : "border-slate-300 hover:border-slate-500";
+    ? "border-ink ring-2 ring-signal/40"
+    : "border-rule-strong hover:border-ink-3";
 
   const dashArray =
     value === "dashed" ? "10 6" : value === "dotted" ? "2 6" : undefined;
@@ -1095,7 +1112,7 @@ function StrokeStyleTile({
     <button
       type="button"
       onClick={onClick}
-      className={`h-9 w-14 rounded-md border transition ${border} ${isDark ? "bg-[#1e1e1e]" : "bg-white"}`}
+      className={`h-9 w-14 rounded-md border transition ${border} ${"bg-surface"}`}
       title={value}
     >
       <svg viewBox="0 0 48 24" className="h-full w-full" fill="none">
@@ -1104,7 +1121,7 @@ function StrokeStyleTile({
           y1="12"
           x2="40"
           y2="12"
-          className={isDark ? "stroke-slate-200" : "stroke-slate-700"}
+          className={"stroke-ink-2"}
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeDasharray={dashArray}
@@ -1208,6 +1225,12 @@ export default function CanvasPage() {
   const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
   const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
   const [isAiOpen, setIsAiOpen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [modKey, setModKey] = useState("Ctrl");
+  useEffect(() => {
+    if (/mac|iphone|ipad/i.test(navigator.platform)) setModKey("⌘");
+  }, []);
+  const [assistantPrefill, setAssistantPrefill] = useState<{ text: string; nonce: number } | null>(null);
   const canonicalRedirectIssuedRef = useRef(false);
   const canonicalUrlNormalizedRef = useRef(false);
   const [defaultRoughness, setDefaultRoughness] = useState<number>(
@@ -1976,6 +1999,43 @@ export default function CanvasPage() {
     lastSyncError: syncResult.lastSyncError,
   });
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const typing = useTypingIndicators({
+    currentUserId: syncResult.currentUserId,
+    sendEphemeral: syncResult.sendEphemeral,
+    subscribeEphemeral: syncResult.subscribeEphemeral,
+  });
+
+  /** Jump the viewport to a shape referenced by a comment. */
+  const handleFocusShape = useCallback(
+    (shapeId: string) => {
+      const shape = canvasState?.getShapes().find((candidate) => candidate.id === shapeId);
+      const bounds = shape ? getBoundsForShapes([shape]) : null;
+      if (!bounds) {
+        pushToast("info", "That shape is no longer on the canvas.");
+        return;
+      }
+      controlsRef.current?.focusViewportToBounds(bounds, {
+        padding: 220,
+        preserveScale: false,
+        maxScale: 1.25,
+        smooth: true,
+        durationMs: 380,
+      });
+    },
+    [canvasState, pushToast],
+  );
+
   const handleAiShapesGenerated = useCallback((shapes: unknown[], meta?: AiResultMeta) => {
     if (!canvasState) return;
     if (isReadOnly) {
@@ -2027,7 +2087,10 @@ export default function CanvasPage() {
     const addedIds = new Set(toAdd.map((shape) => shape.id));
     const linked = linkAiShapes([...canvasState.getShapes(), ...toAdd], addedIds);
     // Image imports must keep their traced geometry; generated diagrams get tidied.
-    const finalShapes = meta?.placeBeside ? linked : beautifyAiShapes(linked, addedIds);
+    // Structured results ("sd-" ids) already come out of the layout engine, so leave them be.
+    const alreadyLaidOut = toAdd.length > 0 && toAdd.every((shape) => shape.id.startsWith("sd-"));
+    const finalShapes =
+      meta?.placeBeside || alreadyLaidOut ? linked : beautifyAiShapes(linked, addedIds);
     canvasState.setShapes(finalShapes);
     controlsRef.current?.rerender();
     const generatedBounds = getBoundsForShapes(
@@ -2035,8 +2098,9 @@ export default function CanvasPage() {
     );
     if (generatedBounds) {
       controlsRef.current?.focusViewportToBounds(generatedBounds, {
-        padding: 140,
-        preserveScale: true,
+        padding: 120,
+        preserveScale: false,
+        maxScale: 1.1,
         smooth: true,
         durationMs: 340,
       });
@@ -2893,21 +2957,46 @@ export default function CanvasPage() {
     participantNames.length - participantPreview.length,
   );
   const zoomPercent = Math.round((viewport?.scale ?? 1) * 100);
-  const shellBackground = isDark
-    ? "bg-[#070b14] text-white"
-    : "bg-[#f5f9ff] text-slate-900";
-  const shellGlow = isDark
-    ? "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.18),transparent_28%),radial-gradient(circle_at_80%_10%,rgba(139,92,246,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.08),transparent_30%)]"
-    : "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%)]";
-  const topToolbarSurface = isDark
-    ? "border border-white/10 bg-[#101724]/75 shadow-[0_20px_70px_rgba(2,6,23,0.45)]"
-    : "border border-slate-200/80 bg-white/90 shadow-[0_12px_40px_rgba(15,23,42,0.1)]";
-  const inspectorSurface = isDark
-    ? "border border-white/10 bg-[#0e1622]/75 shadow-[0_24px_70px_rgba(2,6,23,0.5)]"
-    : "border border-slate-200/80 bg-white/95 shadow-[0_15px_50px_rgba(15,23,42,0.06)]";
-  const floatingPanelSurface = isDark
-    ? "border border-white/10 bg-[#111827]/80 shadow-[0_18px_50px_rgba(2,6,23,0.35)]"
-    : "border border-slate-200/80 bg-white/90 shadow-[0_8px_30px_rgba(15,23,42,0.04)] shadow-sm";
+  const shellBackground = "bg-paper text-ink";
+  const shellGlow = "";
+  const topToolbarSurface =
+    "border border-rule-strong bg-surface/95 shadow-[0_1px_0_var(--rule),0_16px_34px_-20px_rgba(0,0,0,0.55)]";
+  const inspectorSurface =
+    "border border-rule-strong bg-surface/95 shadow-[0_1px_0_var(--rule),0_20px_40px_-22px_rgba(0,0,0,0.55)]";
+  const floatingPanelSurface =
+    "border border-rule-strong bg-surface/95 text-ink shadow-[0_1px_0_var(--rule),0_14px_30px_-20px_rgba(0,0,0,0.5)]";
+  const paletteCommands: PaletteCommand[] = [
+    ...TOOLS.map((tool) => ({
+      id: `tool-${tool.id}`,
+      label: `Tool: ${tool.label}`,
+      group: "Tools",
+      hint: tool.shortcut,
+      keywords: `draw ${tool.id}`,
+      run: () => setActiveTool(tool.id),
+    })),
+    { id: "view-grid", label: "Toggle dot grid", group: "View", run: handleToggleGridVisibility },
+    { id: "view-snap", label: "Toggle snapping", group: "View", run: handleToggleSnap },
+    { id: "view-reset", label: "Reset view", group: "View", keywords: "zoom home fit", run: handleResetView },
+    { id: "view-zoom-in", label: "Zoom in", group: "View", run: () => handleZoomByStep("in") },
+    { id: "view-zoom-out", label: "Zoom out", group: "View", run: () => handleZoomByStep("out") },
+    {
+      id: "view-theme",
+      label: theme === "dark" ? "Switch to light paper" : "Switch to dark paper",
+      group: "View",
+      keywords: "theme dark light mode",
+      run: toggleTheme,
+    },
+    { id: "arrange-td", label: "Tidy layout: top to bottom", group: "Arrange", keywords: "auto arrange", run: () => handleTidyLayout("TD") },
+    { id: "arrange-lr", label: "Tidy layout: left to right", group: "Arrange", keywords: "auto arrange", run: () => handleTidyLayout("LR") },
+    { id: "ai-summarize", label: "Summarize this board", group: "Assistant", keywords: "notes action items", run: handleSummarizeBoard },
+    { id: "share-invite", label: "Copy invite link", group: "Share", keywords: "share collaborate", run: handleCopyInvite },
+    { id: "export-png", label: "Export as PNG", group: "Export", run: handleExportPng },
+    { id: "export-svg", label: "Export as SVG", group: "Export", run: handleExportSvg },
+    { id: "export-pdf", label: "Export as PDF", group: "Export", run: handleExportPdf },
+    { id: "export-json", label: "Export as JSON", group: "Export", run: handleExportJson },
+    { id: "nav-canvases", label: "Go to my canvases", group: "Go to", run: handleGoToMyCanvases },
+  ];
+
   useEffect(() => {
     // Lock body scroll for canvas page to prevent unwanted mobile scrolling
     const originalOverflow = document.body.style.overflow;
@@ -2927,14 +3016,11 @@ export default function CanvasPage() {
       className={`relative h-[100dvh] w-full overflow-hidden overscroll-none ${shellBackground}`}
     >
       <div className={`pointer-events-none absolute inset-0 ${shellGlow}`} />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.22),rgba(255,255,255,0)_28%,rgba(255,255,255,0)_75%,rgba(255,255,255,0.12))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0)_24%,rgba(255,255,255,0)_80%,rgba(2,6,23,0.12))]" />
       {isAccessDenied && (
         <div className="pointer-events-none absolute left-1/2 top-24 z-50 w-[min(92vw,560px)] -translate-x-1/2">
           <div
             className={`rounded-xl border px-4 py-3 text-sm shadow-lg ${
-              isDark
-                ? "border-red-400/40 bg-red-500/15 text-red-100"
-                : "border-red-300 bg-red-50 text-red-700"
+              "border-red-400/40 bg-red-500/15 text-red-100"
             }`}
           >
             You do not have permission to access this room.
@@ -2945,34 +3031,28 @@ export default function CanvasPage() {
       {/* Workspace Metadata */}
       <div className="pointer-events-none absolute left-2 top-2 z-40 sm:left-4 sm:top-4">
         <div
-          className={`pointer-events-auto flex max-w-[calc(100vw-9rem)] items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur-2xl sm:max-w-none sm:gap-4 sm:px-4 sm:py-3 ${floatingPanelSurface}`}
+          className={`pointer-events-auto flex max-w-[calc(100vw-9rem)] items-center gap-2 rounded-[10px] border px-3 py-2 backdrop-blur-xl sm:max-w-none sm:gap-4 sm:px-4 sm:py-2.5 ${floatingPanelSurface}`}
         >
           <div className="min-w-0 flex flex-col">
-            {/* <div className={`mb-1 inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.22em] ${isDark ? "bg-white/5 text-white/55" : "bg-slate-100 text-slate-500"}`}>
+            {/* <div className={`mb-1 inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.22em] ${"bg-paper-2 text-ink-3"}`}>
                             Canvas
                         </div> */}
-            <div className="truncate text-[14px] font-semibold leading-none tracking-tight sm:text-[15px]">
+            <div className="truncate font-display text-[20px] leading-none tracking-tight sm:text-[22px]">
               {canvasTitle}
             </div>
             <div
-              className={`mt-1 truncate text-[10px] ${isDark ? "text-white/45" : "text-slate-500"}`}
+              className={`mt-1 truncate text-[10px] ${"text-ink-3"}`}
             >
               {participantNames.length > 0
                 ? `${participantNames.length} collaborator${participantNames.length === 1 ? "" : "s"} active${extraParticipantCount > 0 ? `, +${extraParticipantCount} more` : ""}`
                 : "Workspace"}
             </div>
           </div>
-          <div
-            className={`h-7 w-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
-          />
+          <div className="h-7 w-px bg-rule-strong" />
           <button
             type="button"
             onClick={handleCopyInvite}
-            className={`shrink-0 rounded-full border px-3 py-2 text-[11px] font-semibold transition-all hover:scale-105 active:scale-95 sm:px-4 ${
-              isDark
-                ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
-                : "border-slate-200 bg-white text-slate-800 shadow-sm hover:border-slate-300 hover:shadow"
-            }`}
+            className="shrink-0 rounded-[6px] bg-ink px-3.5 py-2 text-[11.5px] font-semibold text-paper transition hover:bg-signal active:translate-y-px"
           >
             Share
           </button>
@@ -2981,7 +3061,18 @@ export default function CanvasPage() {
 
       <div className="pointer-events-none absolute right-2 top-2 z-30 sm:right-4 sm:top-4">
         <div className="pointer-events-auto flex items-center gap-2">
-          {/* AI Generate button */}
+          <button
+            type="button"
+            onClick={() => setIsPaletteOpen(true)}
+            title="Search commands"
+            className="hidden h-10 items-center gap-2 rounded-[8px] border border-rule-strong bg-surface px-3 text-[12.5px] text-ink-3 transition-colors hover:bg-paper-2 hover:text-ink md:flex"
+          >
+            Search
+            <kbd className="rounded-[4px] border border-rule px-1.5 py-px font-mono text-[10px] text-ink-3">
+              {modKey} K
+            </kbd>
+          </button>
+          {/* Assistant button */}
           <div className="relative">
             <AiTriggerButton
               onClick={() => setIsAiOpen((o) => !o)}
@@ -3004,6 +3095,7 @@ export default function CanvasPage() {
                 onRegenerate={ai.regenerate}
                 onImage={(file) => void handleImageChosen(file)}
                 onClear={ai.clearHistory}
+                prefill={assistantPrefill}
               />
             )}
           </div>
@@ -3025,11 +3117,7 @@ export default function CanvasPage() {
                   return next;
                 });
               }}
-              className={`grid h-11 w-11 place-items-center rounded-full border text-xl transition ${
-                isDark
-                  ? "border-white/15 bg-[#191919]/95 text-white hover:bg-[#252525]"
-                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-              }`}
+              className="grid h-10 w-10 place-items-center rounded-[8px] border border-rule-strong bg-surface text-xl text-ink transition hover:bg-paper-2"
               title="More actions"
               aria-label="More actions"
             >
@@ -3037,9 +3125,7 @@ export default function CanvasPage() {
               {incomingRoomAccessRequests.length > 0 && (
                 <span
                   className={`absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
-                    isDark
-                      ? "bg-emerald-400 text-black"
-                      : "bg-emerald-600 text-white"
+                    "bg-signal text-white"
                   }`}
                 >
                   {incomingRoomAccessRequests.length}
@@ -3110,7 +3196,7 @@ export default function CanvasPage() {
                 onWheel={(event) => {
                   event.stopPropagation();
                 }}
-                className={`absolute right-0 top-14 max-h-[calc(100vh-5.5rem)] w-[min(92vw,20rem)] overflow-y-auto overscroll-contain rounded-3xl border p-2 backdrop-blur-2xl sm:w-80 ${floatingPanelSurface}`}
+                className={`absolute right-0 top-14 max-h-[calc(100vh-5.5rem)] w-[min(92vw,20rem)] overflow-y-auto overscroll-contain rounded-[10px] border p-1.5 backdrop-blur-xl sm:w-80 ${floatingPanelSurface}`}
               >
                 <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Profile & Account
@@ -3124,7 +3210,7 @@ export default function CanvasPage() {
                     handleOpenProfile();
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   View profile
@@ -3139,9 +3225,7 @@ export default function CanvasPage() {
                   }}
                   disabled={isLoggingOut}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark
-                      ? "text-red-300 hover:bg-red-500/20"
-                      : "text-red-700 hover:bg-red-100"
+                    "text-red-300 hover:bg-red-500/20"
                   } ${isLoggingOut ? "cursor-not-allowed opacity-70" : ""}`}
                 >
                   {isLoggingOut ? "Logging out..." : "Logout"}
@@ -3151,7 +3235,7 @@ export default function CanvasPage() {
                   role="menuitem"
                   onClick={handleGoToMyCanvases}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Switch Workspace</span>
@@ -3159,7 +3243,7 @@ export default function CanvasPage() {
                 </button>
 
                 <div
-                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                  className={`my-2 h-px ${"bg-paper-2"}`}
                 />
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Canvas Actions
@@ -3173,7 +3257,7 @@ export default function CanvasPage() {
                     handleClearCanvas();
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   Clear canvas
@@ -3187,7 +3271,7 @@ export default function CanvasPage() {
                     handleResetView();
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   Reset view
@@ -3234,7 +3318,7 @@ export default function CanvasPage() {
                 ).map(([groupLabel, entries]) => (
                   <div key={groupLabel}>
                     <div
-                      className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                      className={`my-2 h-px ${"bg-paper-2"}`}
                     />
                     <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                       {groupLabel}
@@ -3250,7 +3334,7 @@ export default function CanvasPage() {
                           action();
                         }}
                         className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                          isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                          "hover:bg-paper-2"
                         }`}
                       >
                         <span>{label}</span>
@@ -3260,7 +3344,7 @@ export default function CanvasPage() {
                   </div>
                 ))}
                 <div
-                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                  className={`my-2 h-px ${"bg-paper-2"}`}
                 />
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Data & Persistence
@@ -3274,7 +3358,7 @@ export default function CanvasPage() {
                     setShowHistory(true);
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Version history</span>
@@ -3289,7 +3373,7 @@ export default function CanvasPage() {
                     void handleReloadCanvas();
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   } ${isReloadingCanvas ? "cursor-not-allowed opacity-70" : ""}`}
                   disabled={isReloadingCanvas}
                 >
@@ -3305,7 +3389,7 @@ export default function CanvasPage() {
                   }}
                   disabled={isSavingCanvas}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>
@@ -3317,7 +3401,7 @@ export default function CanvasPage() {
                 </button>
 
                 <div
-                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                  className={`my-2 h-px ${"bg-paper-2"}`}
                 />
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Collaboration
@@ -3329,7 +3413,7 @@ export default function CanvasPage() {
                     handleJoinCanvasFromMenu();
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Join a canvas</span>
@@ -3343,7 +3427,7 @@ export default function CanvasPage() {
                     setShowRoomInfo(false);
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   Copy invite link
@@ -3355,7 +3439,7 @@ export default function CanvasPage() {
                     setShowRoomInfo((current) => !current);
                   }}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Show room info</span>
@@ -3365,9 +3449,7 @@ export default function CanvasPage() {
                 </button>
                 <div
                   className={`mx-2 mt-2 rounded-lg border px-3 py-2 text-xs ${
-                    isDark
-                      ? "border-white/10 bg-white/5"
-                      : "border-slate-200 bg-slate-50"
+                    "border-rule bg-paper-2"
                   }`}
                 >
                   <div className="mb-2 flex items-center justify-between">
@@ -3388,7 +3470,7 @@ export default function CanvasPage() {
                         <div
                           key={request.id}
                           className={`rounded-md border p-2 ${
-                            isDark ? "border-white/10" : "border-slate-200"
+                            "border-rule"
                           }`}
                         >
                           <div className="mb-2 opacity-80">
@@ -3411,9 +3493,7 @@ export default function CanvasPage() {
                                 )
                               }
                               className={`rounded-md border px-2 py-1 text-xs font-medium ${
-                                isDark
-                                  ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100"
-                                  : "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                "border-emerald-300/30 bg-emerald-500/10 text-emerald-100"
                               }`}
                             >
                               Approve
@@ -3432,9 +3512,7 @@ export default function CanvasPage() {
                                 )
                               }
                               className={`rounded-md border px-2 py-1 text-xs font-medium ${
-                                isDark
-                                  ? "border-sky-300/30 bg-sky-500/10 text-sky-100"
-                                  : "border-sky-300 bg-sky-50 text-sky-800"
+                                "border-signal bg-signal-soft text-signal"
                               }`}
                               title="Can look, follow and chat — but not edit"
                             >
@@ -3453,9 +3531,7 @@ export default function CanvasPage() {
                                 )
                               }
                               className={`rounded-md border px-2 py-1 text-xs font-medium ${
-                                isDark
-                                  ? "border-red-300/30 bg-red-500/10 text-red-100"
-                                  : "border-red-300 bg-red-50 text-red-800"
+                                "border-red-300/30 bg-red-500/10 text-red-100"
                               }`}
                             >
                               Reject
@@ -3469,9 +3545,7 @@ export default function CanvasPage() {
                 {showRoomInfo && (
                   <div
                     className={`mx-2 mt-1 rounded-lg border px-3 py-2 text-xs ${
-                      isDark
-                        ? "border-white/10 bg-white/5"
-                        : "border-slate-200 bg-slate-50"
+                      "border-rule bg-paper-2"
                     }`}
                   >
                     <div className="mb-1">Room slug: {roomId ?? "-"}</div>
@@ -3488,7 +3562,7 @@ export default function CanvasPage() {
                 )}
 
                 <div
-                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                  className={`my-2 h-px ${"bg-paper-2"}`}
                 />
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Settings
@@ -3498,12 +3572,12 @@ export default function CanvasPage() {
                   role="menuitem"
                   onClick={() => toggleTheme()}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Toggle dark/light mode</span>
                   <span className="text-xs opacity-70">
-                    {isDark ? "Dark" : "Light"}
+                    {"Dark"}
                   </span>
                 </button>
                 <button
@@ -3511,7 +3585,7 @@ export default function CanvasPage() {
                   role="menuitem"
                   onClick={handleToggleGridVisibility}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Toggle grid visibility</span>
@@ -3524,7 +3598,7 @@ export default function CanvasPage() {
                   role="menuitem"
                   onClick={handleToggleSnap}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Toggle snap</span>
@@ -3534,16 +3608,14 @@ export default function CanvasPage() {
                 </button>
 
                 <div
-                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                  className={`my-2 h-px ${"bg-paper-2"}`}
                 />
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Debug / System
                 </div>
                 <div
                   className={`mx-2 mb-1 rounded-lg px-3 py-2 text-xs ${
-                    isDark
-                      ? "bg-white/5 text-white/85"
-                      : "bg-slate-100 text-slate-700"
+                    "bg-paper-2 text-ink-2"
                   }`}
                 >
                   WS status: {syncStatus}
@@ -3556,7 +3628,7 @@ export default function CanvasPage() {
                   role="menuitem"
                   onClick={handleToggleDebugOverlay}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Toggle debug overlay</span>
@@ -3569,7 +3641,7 @@ export default function CanvasPage() {
                   role="menuitem"
                   onClick={handleToggleDebugPanelMode}
                   className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                    "hover:bg-paper-2"
                   }`}
                 >
                   <span>Debug panel mode</span>
@@ -3579,16 +3651,14 @@ export default function CanvasPage() {
                 </button>
 
                 <div
-                  className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}
+                  className={`my-2 h-px ${"bg-paper-2"}`}
                 />
                 <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Export
                 </div>
                 <div
                   className={`mx-2 rounded-xl border p-2 ${
-                    isDark
-                      ? "border-white/10 bg-white/5"
-                      : "border-slate-200 bg-slate-50"
+                    "border-rule bg-paper-2"
                   }`}
                 >
                   <label className="mb-1 block px-1 text-[11px] font-medium opacity-70">
@@ -3603,9 +3673,7 @@ export default function CanvasPage() {
                         )
                       }
                       className={`w-full rounded-lg border px-2 py-2 text-sm outline-none ${
-                        isDark
-                          ? "border-white/15 bg-[#252525] text-white"
-                          : "border-slate-300 bg-white text-slate-800"
+                        "border-rule-strong bg-paper-2 text-ink"
                       }`}
                     >
                       <option value="png">PNG - image snapshot</option>
@@ -3622,9 +3690,7 @@ export default function CanvasPage() {
                         setShowRoomInfo(false);
                       }}
                       className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                        isDark
-                          ? "border-white/15 bg-[#252525] hover:bg-[#2f2f2f]"
-                          : "border-slate-300 bg-white hover:bg-slate-100"
+                        "border-rule-strong bg-surface hover:bg-paper-2"
                       }`}
                     >
                       Export
@@ -3641,9 +3707,7 @@ export default function CanvasPage() {
         <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 px-4 backdrop-blur-sm">
           <div
             className={`w-full max-w-xl rounded-3xl border p-5 shadow-2xl ${
-              isDark
-                ? "border-white/10 bg-[#111827]/95 text-white"
-                : "border-slate-300 bg-white/95 text-slate-900"
+              "border-rule bg-surface text-ink"
             }`}
           >
             <div className="mb-4 flex items-start justify-between gap-3">
@@ -3652,24 +3716,24 @@ export default function CanvasPage() {
                   Join Someone&apos;s Canvas
                 </h2>
                 <p
-                  className={`mt-1 text-sm ${isDark ? "text-white/70" : "text-slate-600"}`}
+                  className={`mt-1 text-sm ${"text-ink-2"}`}
                 >
                   Paste an invite URL from another user or enter their
                   owner/room route.
                 </p>
               </div>
               <div
-                className={`rounded-lg border px-2 py-1 text-xs ${isDark ? "border-white/15 text-white/70" : "border-slate-300 text-slate-600"}`}
+                className={`rounded-lg border px-2 py-1 text-xs ${"border-rule-strong text-ink-2"}`}
               >
                 Current: {roomId ?? "-"}
               </div>
             </div>
 
             <div
-              className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}
+              className={`rounded-2xl border p-3 ${"border-rule bg-paper-2"}`}
             >
               <label
-                className={`mb-2 block text-xs font-semibold uppercase tracking-[0.14em] ${isDark ? "text-white/60" : "text-slate-500"}`}
+                className={`mb-2 block text-xs font-semibold uppercase tracking-[0.14em] ${"text-ink-3"}`}
               >
                 Join by invite or owner route
               </label>
@@ -3686,9 +3750,7 @@ export default function CanvasPage() {
                   }}
                   placeholder="https://.../room/owner/slug or /room/owner/slug"
                   className={`w-full rounded-xl border px-3 py-2 text-sm outline-none ${
-                    isDark
-                      ? "border-white/15 bg-[#0b1220] text-white placeholder:text-white/40 focus:border-white/30"
-                      : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-slate-500"
+                    "border-rule-strong bg-paper text-ink placeholder:text-ink-3 focus:border-ink"
                   }`}
                 />
                 <button
@@ -3696,9 +3758,7 @@ export default function CanvasPage() {
                   disabled={isJoiningCanvas}
                   onClick={() => void handleSubmitJoinCanvas()}
                   className={`rounded-xl px-3 py-2 text-sm font-semibold ${
-                    isDark
-                      ? "bg-white text-black hover:bg-white/90 disabled:opacity-70"
-                      : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-70"
+                    "bg-ink text-paper hover:bg-signal disabled:opacity-70"
                   }`}
                 >
                   {isJoiningCanvas ? "Joining..." : "Join"}
@@ -3706,13 +3766,13 @@ export default function CanvasPage() {
               </div>
             </div>
             <p
-              className={`mt-3 text-xs ${isDark ? "text-white/55" : "text-slate-500"}`}
+              className={`mt-3 text-xs ${"text-ink-3"}`}
             >
               Tip: Ask collaborators to share their room invite link. Public
               owner routes also work.
             </p>
             <p
-              className={`mt-1 text-[11px] ${isDark ? "text-white/45" : "text-slate-500/90"}`}
+              className={`mt-1 text-[11px] ${"text-ink-3"}`}
             >
               Saved recent canvases on this device: {recentCanvases.length}
             </p>
@@ -3721,9 +3781,7 @@ export default function CanvasPage() {
                 type="button"
                 onClick={() => setIsJoinCanvasModalOpen(false)}
                 className={`rounded-lg border px-3 py-2 text-sm ${
-                  isDark
-                    ? "border-white/15 hover:bg-white/10"
-                    : "border-slate-300 hover:bg-slate-100"
+                  "border-rule-strong hover:bg-paper-2"
                 }`}
               >
                 Close
@@ -3758,7 +3816,7 @@ export default function CanvasPage() {
               {isMobile && (
                 <div
                   className={`rounded-full p-0.5 transition-colors ${
-                    isDark ? "bg-white/10" : "bg-slate-100"
+                    "bg-paper-2"
                   }`}
                 >
                   {isInspectorMinimized ? (
@@ -3770,7 +3828,7 @@ export default function CanvasPage() {
               )}
             </div>
             <span
-              className={`rounded px-2 py-0.5 text-[10px] font-bold ${isDark ? "bg-blue-500/20 text-blue-300" : "bg-blue-50 text-blue-600"}`}
+              className={`rounded px-2 py-0.5 text-[10px] font-bold ${"bg-signal-soft text-signal"}`}
             >
               {selectedCount} Selected
             </span>
@@ -3792,18 +3850,16 @@ export default function CanvasPage() {
                     onClick={() => applyToSelectedShapes({ stroke: color })}
                     className={`h-7 w-7 rounded-lg border transition-all hover:scale-110 active:scale-90 shadow-sm ${
                       hasVisibleBorder
-                        ? isDark
-                          ? "border-white/20"
-                          : "border-slate-300"
+                        ? "border-rule-strong"
                         : "border-transparent"
-                    } ${isSelected ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-[#0e1622]" : ""}`}
+                    } ${isSelected ? "ring-2 ring-signal ring-offset-2 ring-offset-surface" : ""}`}
                     style={{ backgroundColor: color }}
                   />
                 );
               })}
               <label
                 className={`relative h-7 w-7 cursor-pointer overflow-hidden rounded-lg border ${
-                  isDark ? "border-white/20" : "border-slate-300"
+                  "border-rule-strong"
                 }`}
                 style={{ background: RAINBOW_PICKER_BACKGROUND }}
                 title="Pick custom stroke color"
@@ -3837,11 +3893,9 @@ export default function CanvasPage() {
                       onClick={() => applyToSelectedShapes({ fill: color })}
                       className={`h-7 w-7 rounded-lg border transition-all hover:scale-110 active:scale-90 shadow-sm ${
                         hasVisibleBorder
-                          ? isDark
-                            ? "border-white/20"
-                            : "border-slate-300"
+                          ? "border-rule-strong"
                           : "border-transparent"
-                      } ${isSelected ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-[#0e1622]" : ""}`}
+                      } ${isSelected ? "ring-2 ring-signal ring-offset-2 ring-offset-surface" : ""}`}
                       style={{ backgroundColor: color }}
                     />
                   );
@@ -3849,7 +3903,7 @@ export default function CanvasPage() {
 
                 <label
                   className={`relative h-7 w-7 cursor-pointer overflow-hidden rounded-lg border ${
-                    isDark ? "border-white/20" : "border-slate-300"
+                    "border-rule-strong"
                   }`}
                   style={{ background: RAINBOW_PICKER_BACKGROUND }}
                   title="Pick custom fill color"
@@ -3927,23 +3981,15 @@ export default function CanvasPage() {
                     }}
                     className={`flex flex-col items-center rounded-xl border py-2.5 text-[10px] font-bold transition-all ${
                       isActive
-                        ? isDark
-                          ? "border-blue-500/50 bg-blue-600/30 text-white shadow-[0_0_20px_rgba(37,99,235,0.25)]"
-                          : "border-blue-300 bg-blue-50 text-blue-700 shadow-sm shadow-blue-500/5"
-                        : isDark
-                          ? "border-white/5 bg-white/5 text-white/70 hover:border-white/20 hover:text-white"
-                          : "border-slate-100 bg-white text-slate-600 hover:border-blue-200 hover:text-slate-900"
+                        ? "border-signal bg-signal-soft text-ink shadow-[0_0_20px_rgba(37,99,235,0.25)]"
+                        : "border-rule bg-paper-2 text-ink-2 hover:border-rule-strong hover:text-ink"
                     }`}
                   >
                     <span
                       className={`mb-1.5 inline-flex h-4 w-full items-center justify-center ${
                         isActive
-                          ? isDark
-                            ? "text-blue-300"
-                            : "text-blue-600"
-                          : isDark
-                            ? "text-slate-400"
-                            : "text-slate-500"
+                          ? "text-signal"
+                          : "text-ink-3"
                       }`}
                     >
                       <PersonaButtonGlyph personaId={persona.id} />
@@ -3960,7 +4006,7 @@ export default function CanvasPage() {
               <label className="text-[10px] font-bold uppercase tracking-wider opacity-60">
                 Opacity
               </label>
-              <span className="text-[11px] font-bold text-blue-500">
+              <span className="text-[11px] font-bold text-signal">
                 {opacityValue}%
               </span>
             </div>
@@ -3972,7 +4018,7 @@ export default function CanvasPage() {
               onChange={(e) =>
                 applyToSelectedShapes({ opacity: Number(e.target.value) })
               }
-              className="w-full accent-blue-600"
+              className="w-full accent-signal"
             />
           </div>
 
@@ -3980,11 +4026,7 @@ export default function CanvasPage() {
             <button
               type="button"
               onClick={handleReplaySelected}
-              className={`w-full rounded-2xl border px-3 py-3 text-xs font-bold transition-all hover:scale-[1.02] active:scale-[0.98] ${
-                isDark
-                  ? "border-emerald-500/30 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30"
-                  : "border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 shadow-sm shadow-emerald-500/5"
-              }`}
+              className="w-full rounded-[7px] border border-rule-strong bg-surface px-3 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-paper-2"
             >
               Replay Stroke
             </button>
@@ -3992,11 +4034,15 @@ export default function CanvasPage() {
         </aside>
       )}
 
-      {/* Top Center: Main Toolbar */}
+      {/* Top Center: Main Toolbar — a drawing-instrument tray: flat, hairline, ink-filled when active */}
       <div
-        className={`absolute left-1/2 top-20 z-10 w-[calc(100vw-1rem)] -translate-x-1/2 rounded-2xl p-2 backdrop-blur-2xl transition-all duration-500 sm:top-4 sm:w-auto sm:p-3 ${topToolbarSurface}`}
+        className={`absolute left-1/2 top-20 z-10 w-[calc(100vw-1rem)] -translate-x-1/2 rounded-[10px] p-1.5 backdrop-blur-xl transition-all duration-500 sm:top-4 sm:w-auto ${topToolbarSurface}`}
       >
-        <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto scrollbar-none px-1 pb-1 sm:overflow-visible sm:pb-0">
+        <div
+          role="toolbar"
+          aria-label="Drawing tools"
+          className="scrollbar-none flex flex-nowrap items-center gap-0.5 overflow-x-auto sm:overflow-visible"
+        >
           {TOOLS.map((tool, idx) => {
             const isActive = activeTool === tool.id;
             return (
@@ -4005,80 +4051,60 @@ export default function CanvasPage() {
                   type="button"
                   onClick={() => setActiveTool(tool.id)}
                   title={`${tool.label} (${tool.shortcut})`}
-                  className={`group flex shrink-0 min-w-16 flex-col items-center rounded-xl border px-3 py-2.5 transition-all duration-200 ${
+                  aria-pressed={isActive}
+                  className={`group relative grid h-10 w-10 shrink-0 place-items-center rounded-[7px] transition-colors duration-150 ${
                     isActive
-                      ? isDark
-                        ? "border-blue-500/50 bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]"
-                        : "border-blue-400 bg-blue-50 text-blue-700 shadow-md shadow-blue-500/10"
-                      : isDark
-                        ? "border-transparent bg-white/5 text-white/85 hover:border-white/20 hover:text-white"
-                        : "border-transparent bg-slate-100/50 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                      ? "bg-ink text-paper"
+                      : "text-ink-2 hover:bg-paper-2 hover:text-ink"
                   }`}
                 >
-                  <span
-                    className={`transition-transform duration-200 ${isActive ? "scale-110" : "group-hover:scale-110"}`}
-                  >
+                  <span className="[&>svg]:h-[18px] [&>svg]:w-[18px] [&>svg]:stroke-[1.6]">
                     {tool.icon}
                   </span>
                   <span
-                    className={`mt-1 text-[10px] font-bold ${
-                      isActive
-                        ? isDark
-                          ? "text-white/90"
-                          : "text-blue-700"
-                        : "opacity-40"
+                    className={`absolute bottom-0.5 right-1 font-mono text-[8.5px] leading-none ${
+                      isActive ? "text-paper/60" : "text-ink-3"
                     }`}
                   >
                     {tool.shortcut}
                   </span>
                 </button>
-                {idx < TOOLS.length - 1 && (
-                  <div
-                    className={`mx-1.5 h-8 w-px opacity-10 ${isDark ? "bg-white/20" : "bg-slate-300"}`}
-                  />
+                {(idx === 0 || idx === 5) && (
+                  <div className="mx-1 h-5 w-px bg-rule-strong" />
                 )}
               </div>
             );
           })}
-          <div
-            className={`mx-1.5 h-8 w-px opacity-10 ${isDark ? "bg-white/20" : "bg-slate-300"}`}
-          />
+          <div className="mx-1 h-5 w-px bg-rule-strong" />
           <button
             type="button"
             onClick={handleDeleteSelected}
             disabled={selectedCount === 0}
             title="Delete selected shapes (Delete/Backspace)"
-            className={`group flex shrink-0 min-w-16 flex-col items-center rounded-xl border px-3 py-2.5 transition-all duration-200 ${
+            aria-label="Delete selected shapes"
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-[7px] transition-colors duration-150 ${
               selectedCount > 0
-                ? isDark
-                  ? "border-red-500/30 bg-red-600/20 text-red-300 hover:border-red-500/50 hover:bg-red-600/30"
-                  : "border-red-300 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm"
-                : isDark
-                  ? "cursor-not-allowed opacity-20 border-transparent bg-white/5"
-                  : "cursor-not-allowed opacity-30 border-transparent bg-slate-100/50"
+                ? "text-signal hover:bg-signal-soft"
+                : "cursor-not-allowed text-ink-3 opacity-40"
             }`}
           >
-            <svg
-              viewBox="0 0 24 24"
-              className={`h-5 w-5 transition-transform duration-200 ${selectedCount > 0 ? "group-hover:scale-110" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <path d="M3 6h18" />
-              <path d="M8 6V4h8v2" />
-              <path d="M19 6l-1 14H6L5 6" />
+            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 7h16" />
+              <path d="M9 7V4.5h6V7" />
+              <path d="M18 7l-1 13H7L6 7" />
             </svg>
-            <span
-              className={`mt-1 text-[10px] font-bold ${
-                selectedCount > 0 ? "opacity-90" : "opacity-40"
-              }`}
-            >
-              Del
-            </span>
           </button>
         </div>
       </div>
+      <CommandPalette
+        open={isPaletteOpen}
+        onClose={() => setIsPaletteOpen(false)}
+        commands={paletteCommands}
+        onAsk={(text) => {
+          setAssistantPrefill({ text, nonce: Date.now() });
+          setIsAiOpen(true);
+        }}
+      />
       <CanvasMessenger
         currentUserId={syncResult.currentUserId}
         roomKey={roomId ?? null}
@@ -4088,19 +4114,21 @@ export default function CanvasPage() {
         isDark={isDark}
         syncStatus={syncStatus}
         chat={chat}
+        typingNames={typing.typingNames}
+        onTyping={typing.notifyTyping}
+        onStopTyping={typing.stopTyping}
+        onFocusShape={handleFocusShape}
       />
 
       <div className="pointer-events-none absolute bottom-4 left-2 z-30 hidden sm:block sm:left-4">
         <div
-          className={`pointer-events-auto flex items-center gap-2 rounded-2xl border px-2 py-1.5 backdrop-blur-2xl ${floatingPanelSurface}`}
+          className={`pointer-events-auto flex items-center gap-1.5 rounded-[10px] border px-1.5 py-1 backdrop-blur-xl ${floatingPanelSurface}`}
         >
           <button
             type="button"
             onClick={() => handleZoomByStep("out")}
             className={`grid h-8 w-8 place-items-center rounded-lg border text-base font-semibold transition ${
-              isDark
-                ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
-                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+              "border-rule-strong bg-surface text-ink hover:bg-paper-2"
             }`}
             aria-label="Zoom out"
             title="Zoom out"
@@ -4108,7 +4136,7 @@ export default function CanvasPage() {
             -
           </button>
           <div
-            className={`min-w-16 text-center text-sm font-semibold ${isDark ? "text-white/90" : "text-slate-700"}`}
+            className={`min-w-16 text-center text-sm font-semibold ${"text-ink-2"}`}
           >
             {zoomPercent}%
           </div>
@@ -4116,9 +4144,7 @@ export default function CanvasPage() {
             type="button"
             onClick={() => handleZoomByStep("in")}
             className={`grid h-8 w-8 place-items-center rounded-lg border text-base font-semibold transition ${
-              isDark
-                ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
-                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+              "border-rule-strong bg-surface text-ink hover:bg-paper-2"
             }`}
             aria-label="Zoom in"
             title="Zoom in"
@@ -4134,9 +4160,7 @@ export default function CanvasPage() {
             <div
               key={comment.id}
               className={`absolute -translate-x-1/2 rounded-2xl border px-3 py-2 text-xs shadow-lg ${
-                isDark
-                  ? "border-white/15 bg-[#141414]/95 text-white"
-                  : "border-slate-200 bg-white/96 text-slate-800"
+                "border-rule-strong bg-surface text-ink"
               }`}
               style={{
                 left: comment.x * viewport.scale + viewport.x,
@@ -4145,7 +4169,7 @@ export default function CanvasPage() {
               }}
             >
               <div
-                className={`mb-1 font-semibold ${isDark ? "text-blue-200" : "text-blue-700"}`}
+                className={`mb-1 font-semibold ${"text-signal"}`}
               >
                 {comment.authorLabel} commented
               </div>
@@ -4266,7 +4290,7 @@ export default function CanvasPage() {
       )}
 
       {isReadOnly && (
-        <div className="pointer-events-none absolute left-1/2 top-[5.6rem] z-30 -translate-x-1/2 rounded-full bg-sky-600 px-4 py-1.5 text-xs font-semibold text-white shadow-lg">
+        <div className="pointer-events-none absolute left-1/2 top-[5.6rem] z-30 -translate-x-1/2 rounded-full bg-ink px-4 py-1.5 text-xs font-semibold text-paper shadow-lg">
           View only: you can look around, follow and chat, but not edit
         </div>
       )}
@@ -4369,9 +4393,7 @@ export default function CanvasPage() {
             event.stopPropagation();
           }}
           className={`pointer-events-auto absolute bottom-20 left-2 z-20 max-h-[min(60vh,28rem)] w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-3xl border px-3 py-2 text-xs backdrop-blur-2xl sm:bottom-4 sm:left-4 sm:w-80 ${
-            isDark
-              ? "border-white/15 bg-[#171717]/92 text-white/90"
-              : "border-slate-300/80 bg-white/92 text-slate-700"
+            "border-rule-strong bg-surface text-ink-2"
           }`}
         >
           <div className="mb-2 font-semibold">
@@ -4440,16 +4462,10 @@ export default function CanvasPage() {
             key={toast.id}
             className={`pointer-events-auto rounded-2xl border px-3 py-2 text-sm backdrop-blur-xl ${
               toast.tone === "success"
-                ? isDark
-                  ? "border-emerald-300/35 bg-emerald-500/15 text-emerald-100"
-                  : "border-emerald-300 bg-emerald-50 text-emerald-800"
+                ? "border-emerald-300/35 bg-emerald-500/15 text-emerald-100"
                 : toast.tone === "error"
-                  ? isDark
-                    ? "border-red-300/35 bg-red-500/20 text-red-100"
-                    : "border-red-300 bg-red-50 text-red-800"
-                  : isDark
-                    ? "border-blue-300/35 bg-blue-500/20 text-blue-100"
-                    : "border-blue-300 bg-blue-50 text-blue-800"
+                  ? "border-red-300/35 bg-red-500/20 text-red-100"
+                  : "border-signal bg-signal-soft text-signal"
             }`}
           >
             {toast.message}
@@ -4464,9 +4480,7 @@ export default function CanvasPage() {
             aria-modal="true"
             aria-labelledby="clear-canvas-title"
             className={`w-full max-w-md rounded-[28px] border p-5 shadow-2xl backdrop-blur-2xl ${
-              isDark
-                ? "border-white/15 bg-[#1a1a1a] text-white"
-                : "border-slate-300 bg-white text-slate-900"
+              "border-rule-strong bg-surface text-ink"
             }`}
           >
             <h3 id="clear-canvas-title" className="text-base font-semibold">
@@ -4481,9 +4495,7 @@ export default function CanvasPage() {
                 type="button"
                 onClick={() => setIsClearCanvasModalOpen(false)}
                 className={`rounded-lg border px-3 py-2 text-sm transition ${
-                  isDark
-                    ? "border-white/20 hover:bg-white/10"
-                    : "border-slate-300 hover:bg-slate-100"
+                  "border-rule-strong hover:bg-paper-2"
                 }`}
               >
                 Cancel
@@ -4495,9 +4507,7 @@ export default function CanvasPage() {
                   setIsClearCanvasModalOpen(false);
                 }}
                 className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                  isDark
-                    ? "border-red-300/40 bg-red-500/20 text-red-100 hover:bg-red-500/30"
-                    : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                  "border-red-300/40 bg-red-500/20 text-red-100 hover:bg-red-500/30"
                 }`}
               >
                 Clear canvas

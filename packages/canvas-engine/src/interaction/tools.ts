@@ -70,6 +70,8 @@ export type AttachEventsController = {
       preserveScale?: boolean;
       smooth?: boolean;
       durationMs?: number;
+      /** Upper bound for the fitted zoom (default 4). */
+      maxScale?: number;
     },
   ) => void;
   setGridVisible: (visible: boolean) => void;

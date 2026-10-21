@@ -117,7 +117,6 @@ export function LiveCollabLayer({
   applyViewport,
   canControlTimer = true,
   forcePresent,
-  isDark,
 }: LiveCollabLayerProps) {
   const cursorsRef = useRef<Map<string, RemoteCursor>>(new Map());
   const cursorElemsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -275,8 +274,8 @@ export function LiveCollabLayer({
         return;
       }
 
-      // Voice presence and WebRTC signaling are handled by useVoiceChat.
-      if (event.kind === "voice" || event.kind === "rtc") return;
+      // Voice presence and WebRTC signaling are handled by useVoiceChat; typing by the messenger.
+      if (event.kind === "voice" || event.kind === "rtc" || event.kind === "typing") return;
 
       // Viewport (follow / presenter mode).
       if (event.present === false) {
@@ -581,9 +580,7 @@ export function LiveCollabLayer({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [followId, breakFollow]);
 
-  const chipBase = isDark
-    ? "border-white/15 bg-[#171717]/90 text-white/90"
-    : "border-slate-300/80 bg-white/90 text-slate-700";
+  const chipBase = "border-rule-strong bg-surface text-ink-2";
 
   return (
     <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
@@ -847,7 +844,7 @@ export function LiveCollabLayer({
                       key={minutes}
                       type="button"
                       onClick={() => startTimer(minutes)}
-                      className="whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-semibold hover:bg-blue-500/20"
+                      className="whitespace-nowrap rounded-lg px-2.5 py-1 text-xs font-semibold hover:bg-paper-2"
                     >
                       {minutes} min
                     </button>

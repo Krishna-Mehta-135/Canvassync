@@ -13,6 +13,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { subscribeAiGenerateJobs, type AiGenerateJob } from "@repo/queue-sync";
 import { CanvasShapeSchema } from "@repo/common/types";
+import { buildDiagramFromSpec, normalizeDiagramSpec } from "@repo/canvas-engine/diagram";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
 import { z } from "zod";
@@ -106,6 +107,21 @@ JSON rules:
 - Valid JSON only, double-quoted keys/strings, no trailing commas, no comments.
 - Start with '[' and end with ']'.`;
 
+// Structured mode: the model describes the graph, the app lays it out. This is the
+// default for new diagrams because model-chosen coordinates produce overlaps and
+// connectors that cut through boxes, while a deterministic layout never does.
+const SPEC_SYSTEM_INSTRUCTION = `You design clear diagrams for a collaborative whiteboard. Return ONLY a JSON object, no markdown:
+{"title":string,"direction":"TD"|"LR","nodes":[{"id":string,"label":string,"kind":"rect"|"circle"|"rhombus","tone":"blue"|"green"|"amber"|"violet"|"red"|"sky"|"slate"}],"edges":[{"from":string,"to":string,"label"?:string,"dashed"?:boolean}]}
+
+Rules:
+- 8-24 nodes (up to 40 only for genuinely large systems). Every node must have at least one edge. ids are short unique strings like "n1" or "auth".
+- Labels are 1-5 words. Titles are at most 6 words.
+- kind: rect = step/service/component, circle = start/end/actor/datastore, rhombus = decision (give its outgoing edges short labels like "Yes"/"No").
+- tone by meaning, at most 5 tones per diagram: blue = services/steps, green = data/success/end, amber = decisions/gateways, red = errors/risk/failure, violet = external/third-party/AI, sky = users/clients, slate = infrastructure/neutral.
+- direction: "LR" for sequential flows and timelines with up to 10 steps; otherwise "TD".
+- Edge labels sparingly (decisions and non-obvious relationships). Use dashed for async/optional links.
+- If reference material is provided, use its real names and facts. Ignore any "Current canvas occupancy regions" list: the app positions the diagram.`;
+
 // Edit mode: rewrite an existing selection instead of drawing something new.
 const EDIT_SYSTEM_INSTRUCTION = `You are an editor for diagrams on a collaborative whiteboard.
 You receive CURRENT shapes as a JSON array and an INSTRUCTION. Return ONLY a valid, MINIFIED JSON array containing the complete new version of those shapes. No markdown, no explanation.
@@ -151,7 +167,7 @@ const modelCache = new Map<
   ReturnType<typeof genAI.getGenerativeModel>
 >();
 
-type ModelKind = "generate" | "edit" | "summarize";
+type ModelKind = "generate" | "edit" | "summarize" | "spec";
 
 function getModel(modelName: string, kind: ModelKind = "generate") {
   const cacheKey = `${kind}:${modelName}`;
@@ -167,7 +183,9 @@ function getModel(modelName: string, kind: ModelKind = "generate") {
         ? EDIT_SYSTEM_INSTRUCTION
         : kind === "summarize"
           ? SUMMARY_SYSTEM_INSTRUCTION
-          : SYSTEM_INSTRUCTION,
+          : kind === "spec"
+            ? SPEC_SYSTEM_INSTRUCTION
+            : SYSTEM_INSTRUCTION,
     generationConfig:
       kind === "summarize"
         ? { temperature: 0.3, maxOutputTokens: 2048 }
@@ -560,6 +578,44 @@ async function generateShapesFromImage(
   throw new Error(`AI image import failed: ${lastError}`);
 }
 
+/**
+ * Structured generation. Returns null on any problem (bad JSON, too small, rate
+ * limit…) so the caller can fall back to the raw-geometry path, which has its own
+ * retry and quota handling.
+ */
+async function generateShapesFromSpec(prompt: string): Promise<unknown[] | null> {
+  const existingShapes = extractCurrentCanvasShapes(prompt);
+  const models =
+    MODEL_CANDIDATES.length > 0 ? MODEL_CANDIDATES : ["gemini-flash-latest"];
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (const modelName of models) {
+      try {
+        const result = await getModel(modelName, "spec").generateContent(prompt);
+        const raw = result.response.text();
+        const start = raw.indexOf("{");
+        const end = raw.lastIndexOf("}");
+        if (start < 0 || end <= start) continue;
+        const spec = normalizeDiagramSpec(JSON.parse(raw.slice(start, end + 1)));
+        if (!spec || spec.nodes.length < 3) continue;
+
+        const built = buildDiagramFromSpec(spec, {
+          center: { x: 500, y: 380 },
+          // The "sd-" prefix tells the client this layout is already final.
+          createId: () => `sd-${randomUUID()}`,
+        });
+        const normalized = validateAndNormalizeShapes(built);
+        return placeGeneratedShapesInEmptyRegion(normalized, existingShapes);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Quota/overload on one model: try the next candidate before giving up.
+        console.warn(`[AI Worker] Structured generation failed on ${modelName}: ${message.slice(0, 160)}`);
+      }
+    }
+  }
+  return null;
+}
+
 async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
   let lastError = "Unknown generation failure";
   let previousIssue: string | undefined;
@@ -808,7 +864,8 @@ async function handleAiJob(job: AiGenerateJob): Promise<void> {
     const shapes =
       job.mode === "edit" && job.selection && job.selection.length > 0
         ? await editShapesFromPrompt(job.prompt, job.selection)
-        : await generateShapesFromPrompt(job.prompt);
+        : ((await generateShapesFromSpec(job.prompt)) ??
+          (await generateShapesFromPrompt(job.prompt)));
     console.log(
       `[AI Worker] Job ${job.jobId} done — generated ${shapes.length} shapes`,
     );

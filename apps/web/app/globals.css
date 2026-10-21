@@ -75,7 +75,54 @@
   --ring: oklch(0.439 0 0);
 }
 
+/* ─── Studio design tokens ───
+   A drafting-table palette: warm paper, ink, and a single redline-pen accent.
+   Used by the canvas chrome, messenger and assistant. */
+:root,
+:root[data-theme="light"] {
+  --paper: #f3efe4;
+  --paper-2: #ebe6d8;
+  --surface: #fbf9f2;
+  --ink: #17150f;
+  --ink-2: #4c483b;
+  --ink-3: #7d776a;
+  --rule: rgba(23, 21, 15, 0.14);
+  --rule-strong: rgba(23, 21, 15, 0.3);
+  --signal: #d9421f;
+  --signal-soft: rgba(217, 66, 31, 0.12);
+  --mark: #f3d34f;
+  --font-ui: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root[data-theme="dark"] {
+  --paper: #15140e;
+  --paper-2: #1d1c15;
+  --surface: #1a1913;
+  --ink: #efeadc;
+  --ink-2: #bcb6a4;
+  --ink-3: #868070;
+  --rule: rgba(239, 234, 220, 0.13);
+  --rule-strong: rgba(239, 234, 220, 0.3);
+  --signal: #ff6a45;
+  --signal-soft: rgba(255, 106, 69, 0.14);
+  --mark: #f3d34f;
+}
+
 @theme inline {
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-signal: var(--signal);
+  --color-signal-soft: var(--signal-soft);
+  --color-mark: var(--mark);
+  --font-display: var(--font-instrument), "Iowan Old Style", Georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -138,9 +185,12 @@ body {
   }
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* In the base layer so utility classes (text-paper, underline…) on links still win. */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 /* ─── Legacy landing styles (used by old pages) ─── */

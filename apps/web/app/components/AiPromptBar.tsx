@@ -25,6 +25,8 @@ interface AiChatModalProps {
   /** An image dropped/picked in the chat: recreate it as shapes. */
   onImage: (file: File) => void;
   onClear: () => void;
+  /** Text handed over from the command palette; applied when its nonce changes. */
+  prefill?: { text: string; nonce: number } | null;
 }
 
 type Intent = "draw" | "ask";
@@ -192,7 +194,6 @@ export function AiChatModal({
   roomId,
   isOpen,
   onClose,
-  isDark,
   httpBackend,
   apiClient,
   getCurrentShapes,
@@ -203,6 +204,7 @@ export function AiChatModal({
   onRegenerate,
   onImage,
   onClear,
+  prefill,
 }: AiChatModalProps) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -225,6 +227,21 @@ export function AiChatModal({
   useEffect(() => {
     if (isOpen) setTimeout(() => textareaRef.current?.focus(), 80);
   }, [isOpen]);
+
+  const appliedPrefillRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!prefill || !isOpen || appliedPrefillRef.current === prefill.nonce) return;
+    appliedPrefillRef.current = prefill.nonce;
+    setInput(prefill.text);
+    setTimeout(() => {
+      const el = textareaRef.current;
+      el?.focus();
+      if (el) {
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+      }
+    }, 90);
+  }, [prefill, isOpen]);
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -310,27 +327,20 @@ export function AiChatModal({
 
   if (!isOpen) return null;
 
-  const d = isDark;
-  const surface = d ? "bg-[#12121c]" : "bg-white";
-  const border = d ? "border-white/10" : "border-slate-200";
-  const muted = d ? "text-white/45" : "text-slate-500";
-  const faint = d ? "text-white/30" : "text-slate-400";
-  const ghostBtn = d
-    ? "text-white/60 hover:bg-white/10 hover:text-white"
-    : "text-slate-500 hover:bg-slate-100 hover:text-slate-800";
-  const chip = d
-    ? "border-white/10 bg-white/5 text-white/75 hover:border-indigo-400/40 hover:bg-indigo-500/15 hover:text-white"
-    : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700";
-  const aiBubble = d
-    ? "bg-white/[0.06] text-white/90 ring-1 ring-white/10"
-    : "bg-white text-slate-700 ring-1 ring-slate-200 shadow-sm";
+  const surface = "bg-surface text-ink";
+  const border = "border-rule-strong";
+  const muted = "text-ink-3";
+  const faint = "text-ink-3";
+  const ghostBtn = "text-ink-3 hover:bg-paper-2 hover:text-ink";
+  const chip = "border-rule-strong bg-paper-2 text-ink-2 hover:border-ink hover:text-ink";
+  const aiBubble = "bg-paper-2 text-ink ring-1 ring-rule";
   const sourceCount = src.sources.length;
 
   const quickPrompts = [
-    { icon: "⎇", label: "User login flowchart" },
-    { icon: "◫", label: "Microservices architecture" },
-    { icon: "▤", label: "Database ERD for a blog" },
-    { icon: "∞", label: "CI/CD pipeline diagram" },
+    { icon: "01", label: "User login flowchart" },
+    { icon: "02", label: "Microservices architecture" },
+    { icon: "03", label: "Database ERD for a blog" },
+    { icon: "04", label: "CI/CD pipeline diagram" },
   ];
 
   const pick = (text: string) => {
@@ -361,20 +371,20 @@ export function AiChatModal({
         setDragging(false);
         handleFiles(e.dataTransfer.files);
       }}
-      className={`absolute right-0 top-14 z-50 flex w-[min(94vw,420px)] flex-col overflow-hidden rounded-3xl border shadow-[0_24px_70px_-12px_rgba(0,0,0,0.55)] ${surface} ${border}`}
+      className={`absolute right-0 top-14 z-50 flex w-[min(94vw,420px)] flex-col overflow-hidden rounded-[10px] border shadow-[0_1px_0_var(--rule),0_26px_50px_-22px_rgba(0,0,0,0.55)] ${surface} ${border}`}
       style={{ height: "min(640px, calc(100vh - 6rem))" }}
     >
       {/* ── Header ── */}
       <div className={`flex shrink-0 items-center gap-3 border-b px-4 py-3 ${border}`}>
-        <div
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm text-white shadow-md"
-          style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}
-        >
-          ✦
-        </div>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[7px] bg-ink text-paper">
+          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12.5 4.5l3 3L7 16H4v-3z" />
+            <path d="M11 6l3 3" />
+          </svg>
+        </span>
         <div className="min-w-0 flex-1">
-          <p className={`truncate text-sm font-semibold leading-tight ${d ? "text-white" : "text-slate-900"}`}>
-            Canvas AI
+          <p className="truncate font-display text-[22px] leading-none tracking-tight text-ink">
+            Assistant
           </p>
           <p className={`flex items-center gap-1.5 truncate text-[11px] leading-tight ${muted}`}>
             {isGenerating ? (
@@ -419,16 +429,11 @@ export function AiChatModal({
         {messages.length === 0 ? (
           <div className="flex flex-1 flex-col justify-center gap-5 py-2">
             <div className="text-center">
-              <div
-                className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl text-xl text-white shadow-lg"
-                style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}
-              >
-                ✦
-              </div>
-              <p className={`text-[15px] font-semibold ${d ? "text-white" : "text-slate-900"}`}>
+              
+              <p className="font-display text-[34px] italic leading-none tracking-tight text-ink">
                 What are we making?
               </p>
-              <p className={`mx-auto mt-1 max-w-[280px] text-[12px] leading-relaxed ${muted}`}>
+              <p className={`mx-auto mt-3 max-w-[300px] text-[12.5px] leading-relaxed ${muted}`}>
                 Describe a diagram and I&apos;ll draw it, or ask a question. Add
                 files with <span className="font-semibold">+</span> to ground the
                 answers in your own material.
@@ -440,9 +445,9 @@ export function AiChatModal({
                   key={q.label}
                   type="button"
                   onClick={() => pick(q.label)}
-                  className={`flex items-center gap-2 rounded-2xl border px-3 py-2.5 text-left text-[12px] font-medium transition ${chip}`}
+                  className={`flex items-center gap-2 rounded-[8px] border px-3 py-2.5 text-left text-[12.5px] font-medium transition ${chip}`}
                 >
-                  <span className="text-base leading-none text-indigo-400">{q.icon}</span>
+                  <span className="font-mono text-[10px] text-signal">{q.icon}</span>
                   {q.label}
                 </button>
               ))}
@@ -459,20 +464,13 @@ export function AiChatModal({
                 className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${prevSame ? "mt-0.5" : "mt-3"}`}
               >
                 <div
-                  className={`max-w-[88%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed [overflow-wrap:anywhere] ${
+                  className={`max-w-[88%] whitespace-pre-wrap break-words rounded-[10px] px-3.5 py-2 text-[13.5px] leading-[1.5] [overflow-wrap:anywhere] ${
                     isUser
-                      ? "rounded-br-md text-white shadow-sm"
+                      ? "rounded-br-[3px] bg-ink text-paper"
                       : msg.isError
-                        ? d
-                          ? "rounded-bl-md bg-red-500/12 text-red-300 ring-1 ring-red-400/25"
-                          : "rounded-bl-md bg-red-50 text-red-700 ring-1 ring-red-200"
-                        : `rounded-bl-md ${aiBubble}`
+                        ? "rounded-bl-[3px] bg-signal-soft text-signal ring-1 ring-signal/30"
+                        : `rounded-bl-[3px] ${aiBubble}`
                   }`}
-                  style={
-                    isUser
-                      ? { background: "linear-gradient(135deg,#6366f1,#7c3aed)" }
-                      : undefined
-                  }
                 >
                   {msg.isGenerating ? (
                     <span className={`flex items-center gap-2.5 ${muted}`}>
@@ -480,7 +478,7 @@ export function AiChatModal({
                         {[0, 0.15, 0.3].map((delay) => (
                           <span
                             key={delay}
-                            className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400"
+                            className="inline-block h-1.5 w-1.5 rounded-full bg-signal"
                             style={{ animation: `bounce 0.8s ${delay}s ease-in-out infinite` }}
                           />
                         ))}
@@ -501,9 +499,9 @@ export function AiChatModal({
                       <span
                         key={c.n}
                         title={c.snippet}
-                        className={`inline-flex max-w-full items-center gap-1 truncate rounded-full border px-2 py-0.5 text-[10px] ${chip}`}
+                        className={`inline-flex max-w-full items-center gap-1 truncate rounded-[4px] border px-2 py-0.5 font-mono text-[10px] ${chip}`}
                       >
-                        <b className="text-indigo-400">{c.n}</b>
+                        <b className="text-signal">{c.n}</b>
                         <span className="truncate">{c.sourceName}</span>
                       </span>
                     ))}
@@ -522,7 +520,7 @@ export function AiChatModal({
                             getCurrentShapes(),
                           )
                         }
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40 ${chip}`}
+                        className={`rounded-[6px] border px-2.5 py-1 text-[11.5px] font-medium transition disabled:opacity-40 ${chip}`}
                       >
                         ✎ Draw this
                       </button>
@@ -532,7 +530,7 @@ export function AiChatModal({
                         type="button"
                         disabled={isGenerating}
                         onClick={() => onRegenerate(msg.id)}
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40 ${chip}`}
+                        className={`rounded-[6px] border px-2.5 py-1 text-[11.5px] font-medium transition disabled:opacity-40 ${chip}`}
                       >
                         ↻ Regenerate
                       </button>
@@ -559,7 +557,7 @@ export function AiChatModal({
               type="button"
               onClick={() => pick(q)}
               title={q}
-              className={`max-w-[240px] shrink-0 truncate rounded-full border px-3 py-1 text-[11px] transition ${chip}`}
+              className={`max-w-[240px] shrink-0 truncate rounded-[6px] border px-3 py-1 text-[11.5px] transition ${chip}`}
             >
               {q}
             </button>
@@ -570,21 +568,17 @@ export function AiChatModal({
       {/* ── Composer ── */}
       <div className="shrink-0 px-3 pb-3">
         <div
-          className={`rounded-2xl border transition-all focus-within:ring-2 ${
-            d
-              ? "border-white/10 bg-white/[0.05] focus-within:border-indigo-400/50 focus-within:ring-indigo-500/15"
-              : "border-slate-200 bg-slate-50 focus-within:border-indigo-400 focus-within:ring-indigo-100"
-          }`}
+          className="rounded-[8px] border border-rule-strong bg-paper transition-colors focus-within:border-ink"
         >
           {(sourceCount > 0 || src.pending.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
               {src.sources.map((s) => (
                 <span
                   key={s.id}
-                  className={`group inline-flex max-w-[170px] items-center gap-1.5 rounded-lg border py-1 pl-2 pr-1 text-[11px] ${chip}`}
+                  className={`group inline-flex max-w-[170px] items-center gap-1.5 rounded-[5px] border py-1 pl-2 pr-1 text-[11px] ${chip}`}
                   title={`${s.name} · ${Math.max(1, Math.round(s.charCount / 1000))}k chars`}
                 >
-                  <svg viewBox="0 0 16 16" className="h-3 w-3 shrink-0 text-indigo-400" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+                  <svg viewBox="0 0 16 16" className="h-3 w-3 shrink-0 text-signal" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
                     <path d="M3.5 1.5h6L13 5v9.5H3.5z M9.5 1.5V5H13" />
                   </svg>
                   <span className="truncate">{s.name}</span>
@@ -601,9 +595,9 @@ export function AiChatModal({
               {src.pending.map((name, idx) => (
                 <span
                   key={`${name}-${idx}`}
-                  className={`inline-flex max-w-[170px] items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] ${chip}`}
+                  className={`inline-flex max-w-[170px] items-center gap-1.5 rounded-[5px] border px-2 py-1 text-[11px] ${chip}`}
                 >
-                  <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-indigo-400/30 border-t-indigo-400" />
+                  <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-signal/30 border-t-signal" />
                   <span className="truncate">{name}</span>
                 </span>
               ))}
@@ -639,9 +633,7 @@ export function AiChatModal({
             }}
             placeholder={isGenerating ? "Working…" : "Ask a question or describe a diagram…"}
             disabled={isGenerating}
-            className={`block w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-[13px] outline-none disabled:opacity-40 ${
-              d ? "text-white placeholder-white/30" : "text-slate-900 placeholder-slate-400"
-            }`}
+            className="block w-full resize-none bg-transparent px-3.5 pb-1 pt-3 text-[13.5px] text-ink outline-none placeholder:text-ink-3 disabled:opacity-40"
             style={{ minHeight: "28px", maxHeight: "120px" }}
           />
 
@@ -652,8 +644,8 @@ export function AiChatModal({
               aria-label="Add files"
               aria-expanded={menuOpen}
               title="Add files or an image"
-              className={`grid h-8 w-8 place-items-center rounded-full border transition ${
-                menuOpen ? "border-indigo-400/50 bg-indigo-500/15 text-indigo-400" : `${border} ${ghostBtn}`
+              className={`grid h-8 w-8 place-items-center rounded-[6px] border transition ${
+                menuOpen ? "border-ink bg-paper-2 text-ink" : `${border} ${ghostBtn}`
               }`}
             >
               <svg viewBox="0 0 20 20" className={`h-4 w-4 transition-transform ${menuOpen ? "rotate-45" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -663,7 +655,7 @@ export function AiChatModal({
 
             {menuOpen && (
               <div
-                className={`absolute bottom-11 left-1 z-10 w-60 overflow-hidden rounded-2xl border p-1 shadow-xl ${surface} ${border}`}
+                className={`absolute bottom-11 left-1 z-10 w-60 overflow-hidden rounded-[8px] border p-1 shadow-xl ${surface} ${border}`}
               >
                 {[
                   {
@@ -699,11 +691,9 @@ export function AiChatModal({
                       setMenuOpen(false);
                       item.run();
                     }}
-                    className={`flex w-full flex-col rounded-xl px-3 py-2 text-left transition ${
-                      d ? "hover:bg-white/8" : "hover:bg-slate-100"
-                    }`}
+                    className="flex w-full flex-col rounded-[5px] px-3 py-2 text-left transition hover:bg-paper-2"
                   >
-                    <span className={`text-[12px] font-medium ${d ? "text-white/90" : "text-slate-800"}`}>
+                    <span className="text-[12.5px] font-medium text-ink">
                       {item.label}
                     </span>
                     <span className={`text-[10px] ${faint}`}>{item.hint}</span>
@@ -723,10 +713,10 @@ export function AiChatModal({
               disabled={!input.trim() || !roomId || isGenerating}
               title="Send (Enter)"
               className="flex h-8 w-8 items-center justify-center rounded-full text-white shadow-sm transition-all enabled:hover:scale-105 disabled:cursor-not-allowed disabled:opacity-30"
-              style={{ background: "linear-gradient(135deg,#6366f1,#a855f7)" }}
+              
             >
               {isGenerating ? (
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-paper/30 border-t-paper" />
               ) : (
                 <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10 16V4M5 9l5-5 5 5" />
@@ -751,12 +741,10 @@ export function AiChatModal({
       {/* ── Drop overlay ── */}
       {dragging && (
         <div
-          className={`pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-indigo-400/70 backdrop-blur-sm ${
-            d ? "bg-[#12121c]/85" : "bg-white/85"
-          }`}
+          className={`pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-signal bg-surface/90 backdrop-blur-sm`}
         >
-          <span className="text-3xl text-indigo-400">⇪</span>
-          <p className={`text-sm font-semibold ${d ? "text-white" : "text-slate-800"}`}>Drop to add</p>
+          
+          <p className="font-display text-[26px] italic text-ink">Drop to add</p>
           <p className={`text-[11px] ${muted}`}>Documents become sources · images become diagrams</p>
         </div>
       )}
@@ -769,45 +757,31 @@ export function AiChatModal({
 interface AiTriggerButtonProps {
   onClick: () => void;
   isActive: boolean;
-  isDark: boolean;
+  isDark?: boolean;
 }
 
 export function AiTriggerButton({
   onClick,
   isActive,
-  isDark,
 }: AiTriggerButtonProps) {
   return (
     <button
       id="ai-trigger-button"
       type="button"
       onClick={onClick}
-      title="Generate with AI"
-      className={`flex h-11 items-center gap-2 rounded-full border pl-3 pr-4 text-[13px] font-medium transition-all ${
+      title="Ask or draw with the assistant"
+      aria-pressed={isActive}
+      className={`flex h-10 items-center gap-2 rounded-[8px] border px-3.5 text-[13px] font-medium transition-colors ${
         isActive
-          ? isDark
-            ? "border-indigo-400/50 bg-indigo-500/20 text-indigo-200"
-            : "border-indigo-300 bg-indigo-50 text-indigo-700"
-          : isDark
-            ? "border-white/15 bg-[#191919]/95 text-white hover:border-indigo-400/30 hover:bg-[#1c1c2e]"
-            : "border-slate-300 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/60"
+          ? "border-ink bg-ink text-paper"
+          : "border-rule-strong bg-surface text-ink hover:bg-paper-2"
       }`}
     >
-      <span
-        className="text-sm leading-none"
-        style={
-          !isActive
-            ? {
-                background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-              }
-            : undefined
-        }
-      >
-        ✦
-      </span>
-      <span className="hidden sm:inline">Generate with AI</span>
+      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12.5 4.5l3 3L7 16H4v-3z" />
+        <path d="M11 6l3 3" />
+      </svg>
+      <span className="hidden sm:inline">Assistant</span>
       <span className="sm:hidden">AI</span>
     </button>
   );

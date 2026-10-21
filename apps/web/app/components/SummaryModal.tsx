@@ -66,12 +66,10 @@ function SummaryBody({ text }: { text: string }) {
   );
 }
 
-export function SummaryModal({ summary, isDark, onClose, onInsert }: SummaryModalProps) {
+export function SummaryModal({ summary, onClose, onInsert }: SummaryModalProps) {
   const [copied, setCopied] = useState(false);
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717] text-white/90"
-    : "border-slate-300 bg-white text-slate-800";
+  const surface = "border-rule-strong bg-surface text-ink-2";
 
   return (
     <div
@@ -118,7 +116,7 @@ export function SummaryModal({ summary, isDark, onClose, onInsert }: SummaryModa
           <button
             type="button"
             onClick={() => onInsert(summary)}
-            className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white"
+            className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-paper"
           >
             Add as note on canvas
           </button>

@@ -4,16 +4,7 @@
 
 import { useState, FormEvent, useEffect } from "react";
 import { AxiosError } from "axios";
-import {
-  ArrowRight,
-  Eye,
-  EyeOff,
-  Github,
-  Loader2,
-  Moon,
-  Sparkles,
-  Sun,
-} from "lucide-react";
+import { Eye, EyeOff, Github, Loader2 } from "lucide-react";
 
 const GoogleIcon = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -25,7 +16,6 @@ const GoogleIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 import { useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import { HTTP_BACKEND } from "../../config";
 import { apiClient } from "../lib/apiClient";
@@ -130,381 +120,190 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
 
   if (checkingSession) {
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex items-center justify-center transition-colors duration-300">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex items-center gap-3 text-gray-500 dark:text-white/60 text-sm"
-        >
-          <Loader2 className="w-4 h-4 animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-paper text-ink-3">
+        <div className="flex items-center gap-2.5 font-mono text-[12px]">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Checking session…
-        </motion.div>
+        </div>
       </div>
     );
   }
 
+  const field =
+    "block w-full rounded-[7px] border border-rule-strong bg-surface px-3.5 py-3 text-[15px] text-ink outline-none transition placeholder:text-ink-3 focus:border-ink";
+  const oauthBtn =
+    "flex w-full items-center justify-center gap-2.5 rounded-[7px] border border-rule-strong bg-surface px-4 py-3 text-[14px] font-medium text-ink transition hover:bg-paper-2";
+
   return (
-    <div className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%),linear-gradient(180deg,#edf4ff_0%,#ffffff_45%,#f0f7ff_100%)] text-gray-900 transition-colors duration-300 dark:bg-[radial-gradient(circle_at_18%_12%,rgba(59,130,246,0.20),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(139,92,246,0.16),transparent_24%),linear-gradient(180deg,#0f172a_0%,#020617_70%,#020617_100%)] dark:text-white">
-      {/* Animated background gradients — subtle in light, vivid in dark */}
-      <motion.div
-        className="fixed inset-0 pointer-events-none"
-        animate={{
-          background: [
-            "radial-gradient(circle at 20% 50%, rgba(99,102,241,0.12) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(168,85,247,0.1) 0%, transparent 50%)",
-            "radial-gradient(circle at 80% 50%, rgba(168,85,247,0.12) 0%, transparent 50%), radial-gradient(circle at 20% 80%, rgba(99,102,241,0.1) 0%, transparent 50%)",
-            "radial-gradient(circle at 20% 50%, rgba(99,102,241,0.12) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(168,85,247,0.1) 0%, transparent 50%)",
-          ],
-        }}
-        transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-      />
-      {/* Subtle grid */}
-      <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(100,100,100,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(100,100,100,0.06)_1px,transparent_1px)] bg-size-[64px_64px] dark:bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)]" />
-
-      {/* Header */}
-      <motion.header
-        initial={{ y: -40, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5 }}
-        className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5"
-      >
-        <Link href="/" className="flex items-center gap-3">
-          <CanvasLogo className="w-10 h-10" />
-          <span className="text-[28px] font-black text-slate-900 dark:text-white tracking-tighter">
-            Canvas.
-          </span>
+    <div className="grid min-h-screen bg-paper text-ink lg:grid-cols-[1fr_1.05fr]" style={{ fontFamily: "var(--font-ui)" }}>
+      {/* Left: the pitch, on ink */}
+      <aside className="relative hidden flex-col justify-between overflow-hidden bg-ink p-12 text-paper lg:flex">
+        <Link href="/" className="flex items-center gap-2.5">
+          <CanvasLogo className="h-7 w-7" />
+          <span className="font-display text-[26px] leading-none">Canvas</span>
         </Link>
-        <div className="flex w-full items-center justify-between gap-4 sm:w-auto sm:justify-end">
-          {/* Theme toggle */}
-          <motion.button
-            onClick={toggleTheme}
-            className="p-2.5 rounded-full bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/70 hover:text-gray-900 dark:hover:text-white transition-colors"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.92 }}
-            aria-label="Toggle theme"
-          >
-            <AnimatePresence mode="wait">
-              {theme === "dark" ? (
-                <motion.div
-                  key="moon"
-                  initial={{ opacity: 0, rotate: -90, scale: 0.5 }}
-                  animate={{ opacity: 1, rotate: 0, scale: 1 }}
-                  exit={{ opacity: 0, rotate: 90, scale: 0.5 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <Moon className="w-4 h-4" />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="sun"
-                  initial={{ opacity: 0, rotate: 90, scale: 0.5 }}
-                  animate={{ opacity: 1, rotate: 0, scale: 1 }}
-                  exit={{ opacity: 0, rotate: -90, scale: 0.5 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <Sun className="w-4 h-4" />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.button>
-
-          <Link
-            href={isSignIn ? "/signup" : "/signin"}
-            className="text-sm text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white transition-colors font-medium"
-          >
+        <div>
+          <p className="font-display text-[clamp(2.6rem,4.6vw,4.2rem)] leading-[0.98] tracking-tight">
             {isSignIn ? (
               <>
-                No account?{" "}
-                <span className="text-indigo-500 dark:text-indigo-400 font-semibold">
-                  Sign up
-                </span>
+                Pick up where the <em className="italic text-[var(--signal)]">board</em> left off.
               </>
             ) : (
               <>
-                Have an account?{" "}
-                <span className="text-indigo-500 dark:text-indigo-400 font-semibold">
-                  Sign in
-                </span>
+                A blank board, a few files, and <em className="italic text-[var(--signal)]">someone to ask.</em>
               </>
             )}
-          </Link>
+          </p>
+          <p className="mt-6 max-w-sm text-[15px] leading-relaxed text-paper/65">
+            Realtime drawing with your team, and an assistant that answers from the documents you
+            give it.
+          </p>
         </div>
-      </motion.header>
+        <p className="font-mono text-[11px] text-paper/40">© 2026 Canvas</p>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-[0.07]"
+          style={{
+            backgroundImage: "radial-gradient(var(--paper) 1.2px, transparent 1.3px)",
+            backgroundSize: "24px 24px",
+          }}
+        />
+      </aside>
 
-      {/* Main */}
-      <main className="relative z-10 flex flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-          className="mx-auto w-full max-w-xl"
-        >
-          {/* Badge */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.1 }}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 mb-6"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-            <span className="text-xs text-gray-600 dark:text-white/60">
-              AI-Powered Infinite Canvas
-            </span>
-          </motion.div>
-
-          {/* Title */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="mb-8"
-          >
-            <h1 className="mb-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl">
-              {isSignIn ? "Welcome back" : "Get started"}
-            </h1>
-            <p className="text-sm leading-relaxed text-gray-500 dark:text-white/50 sm:text-base">
-              {isSignIn
-                ? "Sign in to continue building on your canvas."
-                : "Join thousands of teams sketching together."}
-            </p>
-          </motion.div>
-
-          {/* Card */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="rounded-4xl border border-slate-200/80 bg-white/88 p-5 shadow-[0_28px_100px_rgba(15,23,42,0.14)] backdrop-blur-2xl dark:border-white/10 dark:bg-white/4 dark:shadow-none sm:p-8"
-          >
-            {/* Error */}
-            <AnimatePresence>
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8, height: 0 }}
-                  animate={{ opacity: 1, y: 0, height: "auto" }}
-                  exit={{ opacity: 0, y: -8, height: 0 }}
-                  className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-sm font-medium"
-                >
-                  {error}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* OAuth Buttons */}
-            <div className="flex flex-col gap-3 mb-6">
-              <motion.button
-                type="button"
-                onClick={() => handleOAuthSignIn("github")}
-                whileHover={{ scale: 1.015 }}
-                whileTap={{ scale: 0.97 }}
-                className="group relative w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-800 dark:text-white text-sm font-semibold overflow-hidden shadow-sm hover:border-slate-900 dark:hover:border-white/30 transition-colors"
-              >
-                <motion.div
-                  className="absolute inset-0 bg-slate-900 dark:bg-white"
-                  initial={{ x: "-100%" }}
-                  whileHover={{ x: "0%" }}
-                  transition={{ duration: 0.25, ease: "easeInOut" }}
-                />
-                <span className="relative z-10 flex items-center gap-2.5 group-hover:text-white dark:group-hover:text-slate-900 transition-colors duration-200">
-                  <Github className="w-4.5 h-4.5" />
-                  Continue with GitHub
-                </span>
-              </motion.button>
-
-              <motion.button
-                type="button"
-                onClick={() => handleOAuthSignIn("google")}
-                whileHover={{ scale: 1.015 }}
-                whileTap={{ scale: 0.97 }}
-                className="group relative w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 text-slate-800 dark:text-white text-sm font-semibold overflow-hidden shadow-sm hover:border-indigo-400 dark:hover:border-indigo-400/60 transition-colors"
-              >
-                <motion.div
-                  className="absolute inset-0 bg-linear-to-r from-blue-50 to-indigo-50 dark:from-indigo-500/10 dark:to-purple-500/10"
-                  initial={{ x: "-100%" }}
-                  whileHover={{ x: "0%" }}
-                  transition={{ duration: 0.25, ease: "easeInOut" }}
-                />
-                <span className="relative z-10 flex items-center gap-2.5">
-                  <GoogleIcon className="w-4.5 h-4.5" />
-                  Continue with Google
-                </span>
-              </motion.button>
-            </div>
-
-            <div className="relative flex items-center mb-6">
-              <div className="flex-grow border-t border-gray-200 dark:border-white/10"></div>
-              <span className="flex-shrink-0 mx-4 text-xs text-gray-400 dark:text-white/30 uppercase tracking-wider">
-                Or continue with email
-              </span>
-              <div className="flex-grow border-t border-gray-200 dark:border-white/10"></div>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Name */}
-              {!isSignIn && (
-                <div>
-                  <label
-                    htmlFor="name"
-                    className="block text-sm font-medium text-gray-700 dark:text-white/70 mb-1.5"
-                  >
-                    Full name
-                  </label>
-                  <input
-                    id="name"
-                    type="text"
-                    autoComplete="name"
-                    placeholder="Jane Smith"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 text-sm transition-all outline-none focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/15 hover:border-gray-300 dark:hover:border-white/20"
-                  />
-                </div>
-              )}
-
-              {/* Email */}
-              <div>
-                <label
-                  htmlFor="email"
-                  className="block text-sm font-medium text-gray-700 dark:text-white/70 mb-1.5"
-                >
-                  Email address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="jane@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 text-sm transition-all outline-none focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/15 hover:border-gray-300 dark:hover:border-white/20"
-                />
-              </div>
-
-              {/* Password */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label
-                    htmlFor="password"
-                    className="block text-sm font-medium text-gray-700 dark:text-white/70"
-                  >
-                    Password
-                  </label>
-                  {isSignIn && (
-                    <a
-                      href="/forgot-password"
-                      className="text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-medium transition-colors"
-                    >
-                      Forgot password?
-                    </a>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete={
-                      isSignIn ? "current-password" : "new-password"
-                    }
-                    placeholder={
-                      isSignIn ? "Your password" : "At least 8 characters"
-                    }
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={isSignIn ? undefined : 8}
-                    className="w-full px-4 py-3 pr-11 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 text-sm transition-all outline-none focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/15 hover:border-gray-300 dark:hover:border-white/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((p) => !p)}
-                    className="absolute inset-y-0 right-0 flex items-center px-3.5 text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 transition-colors"
-                    tabIndex={-1}
-                    aria-label={
-                      showPassword ? "Hide password" : "Show password"
-                    }
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-                {!isSignIn && (
-                  <p className="mt-1.5 text-xs text-gray-400 dark:text-white/30">
-                    Must be at least 8 characters.
-                  </p>
-                )}
-              </div>
-
-              {/* Submit */}
-              <motion.button
-                type="submit"
-                disabled={loading}
-                className="group relative mt-2 flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-linear-to-r from-blue-600 via-indigo-600 to-cyan-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-                whileHover={loading ? {} : { scale: 1.02 }}
-                whileTap={loading ? {} : { scale: 0.98 }}
-              >
-                <motion.div
-                  className="absolute inset-0 bg-linear-to-r from-blue-500 via-cyan-400 to-emerald-400"
-                  initial={{ x: "100%" }}
-                  whileHover={{ x: "0%" }}
-                  transition={{ duration: 0.3 }}
-                />
-                <span className="relative z-10 flex items-center gap-2">
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {isSignIn ? "Signing in…" : "Creating account…"}
-                    </>
-                  ) : (
-                    <>
-                      {isSignIn ? "Sign in" : "Create account"}
-                      <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                    </>
-                  )}
-                </span>
-              </motion.button>
-            </form>
-
-            {/* Terms */}
-            <p className="text-center text-xs text-gray-400 dark:text-white/30 leading-relaxed mt-6 pt-5 border-t border-gray-100 dark:border-white/5">
-              By continuing you agree to our{" "}
-              <a
-                href="#"
-                className="text-gray-600 dark:text-white/50 hover:text-gray-900 dark:hover:text-white underline underline-offset-2 transition-colors"
-              >
-                Terms
-              </a>{" "}
-              and{" "}
-              <a
-                href="#"
-                className="text-gray-600 dark:text-white/50 hover:text-gray-900 dark:hover:text-white underline underline-offset-2 transition-colors"
-              >
-                Privacy Policy
-              </a>
-              .
-            </p>
-          </motion.div>
-
-          {/* Bottom switch */}
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="text-center text-sm text-gray-500 dark:text-white/40 mt-6"
-          >
-            {isSignIn ? "New to Canvas?" : "Already have an account?"}{" "}
+      {/* Right: the form */}
+      <main className="flex flex-col px-5 py-6 sm:px-10">
+        <div className="flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 lg:invisible">
+            <CanvasLogo className="h-6 w-6" />
+            <span className="font-display text-[22px] leading-none">Canvas</span>
+          </Link>
+          <div className="flex items-center gap-4 text-[13.5px]">
+            <span className="text-ink-3">{isSignIn ? "New here?" : "Already have an account?"}</span>
             <Link
               href={isSignIn ? "/signup" : "/signin"}
-              className="text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-semibold transition-colors"
+              className="font-medium text-ink underline decoration-rule-strong underline-offset-[5px] hover:decoration-ink"
             >
-              {isSignIn ? "Create a free account" : "Sign in instead"}
+              {isSignIn ? "Create an account" : "Sign in"}
             </Link>
-          </motion.p>
-        </motion.div>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label="Toggle theme"
+              className="grid h-8 w-8 place-items-center rounded-[6px] text-ink-3 transition hover:bg-paper-2 hover:text-ink"
+            >
+              <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                {theme === "dark" ? (
+                  <>
+                    <circle cx="10" cy="10" r="3.4" />
+                    <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" />
+                  </>
+                ) : (
+                  <path d="M16 11.5A6.5 6.5 0 018.5 4a6.5 6.5 0 107.5 7.5z" />
+                )}
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="mx-auto flex w-full max-w-[26rem] flex-1 flex-col justify-center py-10">
+          <h1 className="font-display text-[44px] leading-none tracking-tight">
+            {isSignIn ? "Welcome back" : "Make an account"}
+          </h1>
+          <p className="mt-3 text-[14.5px] text-ink-2">
+            {isSignIn ? "Sign in to open your canvases." : "It takes a minute. No card needed."}
+          </p>
+
+          <div className="mt-8 space-y-2.5">
+            <button type="button" onClick={() => handleOAuthSignIn("github")} className={oauthBtn}>
+              <Github className="h-[18px] w-[18px]" />
+              Continue with GitHub
+            </button>
+            <button type="button" onClick={() => handleOAuthSignIn("google")} className={oauthBtn}>
+              <GoogleIcon className="h-[18px] w-[18px]" />
+              Continue with Google
+            </button>
+          </div>
+
+          <div className="my-6 flex items-center gap-4 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-3">
+            <span className="h-px flex-1 bg-rule" />
+            or with email
+            <span className="h-px flex-1 bg-rule" />
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate={false}>
+            {!isSignIn && (
+              <label className="block">
+                <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Name</span>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Jane Doe"
+                  autoComplete="name"
+                  className={field}
+                />
+              </label>
+            )}
+            <label className="block">
+              <span className="mb-1.5 block text-[12.5px] font-medium text-ink-2">Email</span>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@example.com"
+                autoComplete="email"
+                className={field}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 flex items-baseline justify-between text-[12.5px] font-medium text-ink-2">
+                Password
+                {isSignIn && (
+                  <Link href="/forgot-password" className="font-normal text-ink-3 underline underline-offset-4 hover:text-ink">
+                    Forgot it?
+                  </Link>
+                )}
+              </span>
+              <span className="relative block">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={isSignIn ? "Your password" : "At least 8 characters"}
+                  autoComplete={isSignIn ? "current-password" : "new-password"}
+                  minLength={isSignIn ? undefined : 8}
+                  className={`${field} pr-11`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-[5px] text-ink-3 hover:text-ink"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </span>
+            </label>
+
+            {error && (
+              <p role="alert" className="rounded-[6px] border border-signal/40 bg-signal-soft px-3 py-2 text-[13px] text-signal">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-2 rounded-[8px] bg-ink px-4 py-3.5 text-[15px] font-medium text-paper shadow-[4px_4px_0_var(--signal)] transition active:translate-x-px active:translate-y-px active:shadow-[3px_3px_0_var(--signal)] disabled:opacity-60"
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isSignIn ? "Sign in" : "Create account"}
+            </button>
+          </form>
+        </div>
       </main>
     </div>
   );

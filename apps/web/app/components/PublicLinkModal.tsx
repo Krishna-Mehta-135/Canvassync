@@ -16,7 +16,7 @@ type LinkState =
   | { phase: "forbidden" }
   | { phase: "ready"; token: string | null };
 
-export function PublicLinkModal({ roomId, isDark, onClose, onCopied }: PublicLinkModalProps) {
+export function PublicLinkModal({ roomId, onClose, onCopied }: PublicLinkModalProps) {
   const [state, setState] = useState<LinkState>({ phase: "loading" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,10 +55,8 @@ export function PublicLinkModal({ roomId, isDark, onClose, onCopied }: PublicLin
     }
   };
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717] text-white/90"
-    : "border-slate-300 bg-white text-slate-800";
-  const field = isDark ? "border-white/15 bg-black/30" : "border-slate-300 bg-slate-50";
+  const surface = "border-rule-strong bg-surface text-ink-2";
+  const field = "border-rule-strong bg-black/30";
   const secondary = "rounded-lg border border-current/20 px-3 py-1.5 text-xs disabled:opacity-40";
 
   return (
@@ -93,7 +91,7 @@ export function PublicLinkModal({ roomId, isDark, onClose, onCopied }: PublicLin
             type="button"
             disabled={busy}
             onClick={() => void run(() => apiClient.post(`${HTTP_BACKEND}/room/${roomId}/public`, {}))}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-paper disabled:opacity-40"
           >
             Create public link
           </button>
@@ -118,7 +116,7 @@ export function PublicLinkModal({ roomId, isDark, onClose, onCopied }: PublicLin
                     setError("Copy failed — select the link and copy it manually.");
                   }
                 }}
-                className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white"
+                className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-paper"
               >
                 Copy link
               </button>

@@ -31,7 +31,6 @@ export function AiEditBar({
   sketchCount,
   onSnapSketches,
   isGenerating,
-  isDark,
   onSubmit,
 }: AiEditBarProps) {
   const [open, setOpen] = useState(false);
@@ -52,9 +51,7 @@ export function AiEditBar({
 
   if (selectedCount === 0) return null;
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717]/92 text-white/90"
-    : "border-slate-300/80 bg-white/92 text-slate-800";
+  const surface = "border-rule-strong bg-surface text-ink-2";
 
   const submit = (instruction: string) => {
     const trimmed = instruction.trim();
@@ -83,7 +80,7 @@ export function AiEditBar({
             type="button"
             onClick={() => setOpen(true)}
             disabled={isGenerating}
-            className="flex items-center gap-2 rounded-full bg-linear-to-r from-violet-600 to-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xl transition hover:brightness-110 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-xs font-semibold text-paper shadow-xl transition hover:brightness-110 disabled:opacity-60"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             {isGenerating

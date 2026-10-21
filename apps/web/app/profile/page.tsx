@@ -179,8 +179,8 @@ export default function ProfilePage() {
                   onClick={() => router.push("/")}
                   className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
                     isDark
-                      ? "border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20"
-                      : "border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                      ? "border-rule-strong bg-paper-2 text-ink hover:bg-paper"
+                      : "border-rule-strong bg-paper-2 text-ink hover:bg-paper"
                   }`}
                 >
                   Home
@@ -345,8 +345,8 @@ export default function ProfilePage() {
                       placeholder="example-room"
                       className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition ${
                         isDark
-                          ? "border-white/15 bg-[#171717] text-white placeholder:text-white/40 focus:border-cyan-300/40"
-                          : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-400"
+                          ? "border-white/15 bg-[#171717] text-white placeholder:text-white/40 focus:border-ink"
+                          : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-ink"
                       }`}
                     />
                     <button
@@ -354,8 +354,8 @@ export default function ProfilePage() {
                       onClick={handleJoinRoom}
                       className={`w-full rounded-lg border px-3 py-2 text-sm font-medium transition ${
                         isDark
-                          ? "border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20"
-                          : "border-cyan-300 bg-cyan-50 text-cyan-800 hover:bg-cyan-100"
+                          ? "border-rule-strong bg-paper-2 text-ink hover:bg-paper"
+                          : "border-rule-strong bg-paper-2 text-ink hover:bg-paper"
                       }`}
                     >
                       Join room

@@ -120,7 +120,6 @@ export function RemotePresenceLayer({
   currentUserId,
   viewportRef,
   shapesRef,
-  isDark,
 }: RemotePresenceLayerProps) {
   // Structural state: which user IDs have visible overlays.
   // Only updated ~4×/sec from the slow poll — drives React re-renders.
@@ -294,7 +293,7 @@ export function RemotePresenceLayer({
               if (el) overlayElemsRef.current.set(userId, el as HTMLDivElement);
               else overlayElemsRef.current.delete(userId);
             }}
-            className={`absolute rounded-md border-2 ${isDark ? "bg-transparent" : "bg-white/5"}`}
+            className={`absolute rounded-md border-2 ${"bg-transparent"}`}
             style={{
               transform: "translate3d(-9999px,-9999px,0)",
               top: 0,

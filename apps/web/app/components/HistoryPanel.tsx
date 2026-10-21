@@ -45,7 +45,6 @@ export function HistoryPanel({
   roomId,
   canvasState,
   viewportRef,
-  isDark,
   onClose,
   onRestored,
   onError,
@@ -284,9 +283,7 @@ export function HistoryPanel({
     onClose();
   };
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717]/95 text-white/90"
-    : "border-slate-300/80 bg-white/95 text-slate-800";
+  const surface = "border-rule-strong bg-surface text-ink-2";
   const label = useMemo(() => {
     if (!entries) return "Loading history…";
     if (entries.length === 0) return "No versions recorded yet";
@@ -340,7 +337,7 @@ export function HistoryPanel({
                 setPlaying(false);
                 setIndex(Number(event.target.value));
               }}
-              className="w-full accent-blue-500"
+              className="w-full accent-signal"
               aria-label="Version timeline"
             />
             <div className="mt-1 flex justify-between text-[10px] opacity-60">
@@ -389,7 +386,7 @@ export function HistoryPanel({
                 onClick={handleRestore}
                 disabled={readOnly || !selected || !previewShapes}
                 title={readOnly ? "View-only access" : undefined}
-                className="ml-auto rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                className="ml-auto rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-paper disabled:opacity-40"
               >
                 Restore this version
               </button>

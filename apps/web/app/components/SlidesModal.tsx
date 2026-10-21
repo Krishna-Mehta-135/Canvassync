@@ -38,7 +38,6 @@ const SAVE_DEBOUNCE_MS = 600;
 export function SlidesModal({
   roomId,
   canEdit,
-  isDark,
   getCurrentView,
   getSelectionFrame,
   goTo,
@@ -137,12 +136,10 @@ export function SlidesModal({
     update(next);
   };
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717] text-white/90"
-    : "border-slate-300 bg-white text-slate-800";
-  const field = isDark ? "border-white/15 bg-black/30" : "border-slate-300 bg-slate-50";
+  const surface = "border-rule-strong bg-surface text-ink-2";
+  const field = "border-rule-strong bg-black/30";
   const iconButton =
-    "grid h-7 w-7 place-items-center rounded-md text-xs hover:bg-blue-500/20 disabled:opacity-30 disabled:hover:bg-transparent";
+    "grid h-7 w-7 place-items-center rounded-md text-xs hover:bg-paper-2 disabled:opacity-30 disabled:hover:bg-transparent";
 
   const selectionFrame = getSelectionFrame();
 
@@ -176,7 +173,7 @@ export function SlidesModal({
             <button
               type="button"
               onClick={() => addSlide(getCurrentView())}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white"
+              className="rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-paper"
             >
               + Add current view
             </button>

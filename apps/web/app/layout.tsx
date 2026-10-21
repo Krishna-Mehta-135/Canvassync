@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { GlobalCursor } from "./components/GlobalCursor";
 import { ThemeProvider } from "./components/ThemeProvider";
 import "./globals.css";
 
@@ -13,17 +12,27 @@ const geistMono = localFont({
   variable: "--font-geist-mono",
 });
 
+// Display serif for headings and moments of personality; Geist stays the UI face.
+const instrumentSerif = localFont({
+  src: [
+    { path: "./fonts/InstrumentSerif-Regular.woff2", style: "normal", weight: "400" },
+    { path: "./fonts/InstrumentSerif-Italic.woff2", style: "italic", weight: "400" },
+  ],
+  variable: "--font-instrument",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Canvas.io — AI-Powered Infinite Canvas",
+  title: "Canvas — the whiteboard that has read your documents",
   description:
-    "A collaborative infinite canvas with AI built in. Think, draw, and build in real time.",
+    "Draw with your team in real time. Add PDFs, Word, Excel or PowerPoint files, then ask questions or say what to draw. Answers cite their source and diagrams come out lined up.",
   icons: {
     icon: "/logo-canvasio.svg",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b1020",
+  themeColor: "#16150f",
 };
 
 export default function RootLayout({
@@ -54,10 +63,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable}`}
+        className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable}`}
       >
         <ThemeProvider>
-          <GlobalCursor />
           {children}
         </ThemeProvider>
       </body>

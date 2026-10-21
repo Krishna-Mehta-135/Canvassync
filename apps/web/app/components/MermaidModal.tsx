@@ -24,7 +24,6 @@ const SAMPLE = `flowchart TD
 
 export function MermaidModal({
   mode,
-  isDark,
   onImport,
   shapes,
   scopeLabel,
@@ -39,12 +38,8 @@ export function MermaidModal({
     [mode, shapes],
   );
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717] text-white/90"
-    : "border-slate-300 bg-white text-slate-800";
-  const field = isDark
-    ? "border-white/15 bg-black/30"
-    : "border-slate-300 bg-slate-50";
+  const surface = "border-rule-strong bg-surface text-ink-2";
+  const field = "border-rule-strong bg-black/30";
 
   const copy = async () => {
     if (!exported) return;
@@ -136,7 +131,7 @@ export function MermaidModal({
                 const message = onImport(source);
                 if (message) setError(message);
               }}
-              className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+              className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-paper disabled:opacity-40"
             >
               Insert on canvas
             </button>
@@ -145,7 +140,7 @@ export function MermaidModal({
               type="button"
               disabled={!exported || exported.nodeCount === 0}
               onClick={() => void copy()}
-              className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+              className="rounded-lg bg-ink px-4 py-1.5 text-xs font-semibold text-paper disabled:opacity-40"
             >
               Copy to clipboard
             </button>

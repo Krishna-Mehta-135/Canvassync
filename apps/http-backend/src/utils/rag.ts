@@ -9,8 +9,9 @@ const EMBED_DIMENSIONS = 768;
 const EMBED_BATCH_SIZE = 50;
 const CHUNK_SIZE = 1000;
 const CHUNK_OVERLAP = 150;
-// Alias (not GEMINI_MODEL_CANDIDATES): pinned model names in that secret may 404.
-const TEXT_MODEL = "gemini-flash-latest";
+// Aliases (not GEMINI_MODEL_CANDIDATES): pinned model names in that secret may 404.
+// The lite alias is the fallback when the main model is out of quota or overloaded.
+const TEXT_MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 
 function apiKey() {
   const key = process.env.GEMINI_API_KEY;
@@ -234,44 +235,60 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
   throw lastError;
 }
 
-async function generateText(prompt: string): Promise<string> {
-  return withRetry(() => generateTextOnce(prompt));
+function modelConfig(model: string, extra: Record<string, unknown>) {
+  // The lite models reject the thinking setting.
+  return model.includes("lite")
+    ? extra
+    : { ...extra, thinkingConfig: { thinkingBudget: 0 } };
 }
 
-async function generateTextOnce(prompt: string): Promise<string> {
-  const res = await axios.post<{
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  }>(
-    `${GEMINI_BASE}/models/${TEXT_MODEL}:generateContent`,
-    {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
-    },
-    { headers: { "x-goog-api-key": apiKey() }, timeout: 45_000 },
-  );
-  return res.data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+/** Try each model in turn; move on when one is rate limited, overloaded or missing. */
+async function withModelFallback<T>(call: (model: string) => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (const model of TEXT_MODELS) {
+    try {
+      return await withRetry(() => call(model), 2);
+    } catch (error) {
+      lastError = error;
+      const status = (error as { response?: { status?: number } }).response?.status;
+      const fallbackWorthy = status === undefined || status === 429 || status === 404 || status >= 500;
+      if (!fallbackWorthy) break;
+    }
+  }
+  throw lastError;
+}
+
+async function generateText(prompt: string): Promise<string> {
+  return withModelFallback(async (model) => {
+    const res = await axios.post<{
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    }>(
+      `${GEMINI_BASE}/models/${model}:generateContent`,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: modelConfig(model, {}),
+      },
+      { headers: { "x-goog-api-key": apiKey() }, timeout: 45_000 },
+    );
+    return res.data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  });
 }
 
 async function generateJson<T>(prompt: string): Promise<T> {
-  return withRetry(() => generateJsonOnce<T>(prompt));
-}
-
-async function generateJsonOnce<T>(prompt: string): Promise<T> {
-  const res = await axios.post<{
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  }>(
-    `${GEMINI_BASE}/models/${TEXT_MODEL}:generateContent`,
-    {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 0 },
+  return withModelFallback(async (model) => {
+    const res = await axios.post<{
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    }>(
+      `${GEMINI_BASE}/models/${model}:generateContent`,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: modelConfig(model, { responseMimeType: "application/json" }),
       },
-    },
-    { headers: { "x-goog-api-key": apiKey() }, timeout: 45_000 },
-  );
-  const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]";
-  return JSON.parse(text) as T;
+      { headers: { "x-goog-api-key": apiKey() }, timeout: 45_000 },
+    );
+    const text = res.data.candidates?.[0]?.content?.parts?.[0]?.text ?? "[]";
+    return JSON.parse(text) as T;
+  });
 }
 
 const suggestionCache = new Map<string, string[]>();

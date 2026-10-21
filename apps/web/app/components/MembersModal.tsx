@@ -14,7 +14,7 @@ type MembersModalProps = {
 };
 
 /** Owner-only: see who has access and switch people between editor and view-only. */
-export function MembersModal({ roomId, isDark, onClose }: MembersModalProps) {
+export function MembersModal({ roomId, onClose }: MembersModalProps) {
   const [members, setMembers] = useState<Member[] | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -68,10 +68,8 @@ export function MembersModal({ roomId, isDark, onClose }: MembersModalProps) {
     }
   };
 
-  const surface = isDark
-    ? "border-white/15 bg-[#171717] text-white/90"
-    : "border-slate-300 bg-white text-slate-800";
-  const select = isDark ? "border-white/15 bg-black/30" : "border-slate-300 bg-slate-50";
+  const surface = "border-rule-strong bg-surface text-ink-2";
+  const select = "border-rule-strong bg-black/30";
 
   return (
     <div

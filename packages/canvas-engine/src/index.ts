@@ -17,6 +17,8 @@ export {
   MermaidParseError,
 } from "./diagram/mermaid";
 export { tidyLayout } from "./diagram/tidy";
+export { buildDiagramFromSpec, normalizeDiagramSpec } from "./diagram/spec";
+export type { DiagramSpec } from "./diagram/spec";
 export { snapSketches, recognizeStroke } from "./diagram/sketch";
 export { TEMPLATES, buildTemplate } from "./diagram/templates";
 export { bindTextToContainers, bindConnectorsToContainers } from "./diagram/labels";

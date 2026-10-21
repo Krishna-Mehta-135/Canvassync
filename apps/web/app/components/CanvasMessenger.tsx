@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RoomPresenceState } from "@repo/common";
-import {
-  MessageCircleMore,
-  MessagesSquare,
-  SendHorizontal,
-  Users,
-  X,
-} from "lucide-react";
 import type {
   CanvasChatMessage,
   UseCanvasChatResult,
 } from "../../hooks/useCanvasChat";
+
+/*
+ * Room messenger. Deliberately not a bubble chat: it reads like a printed
+ * transcript (name, time, text) on the same paper/ink surface as the canvas
+ * chrome, so a conversation feels like marginalia on the board.
+ */
 
 type CanvasMessengerProps = {
   currentUserId: string | null;
@@ -23,23 +22,38 @@ type CanvasMessengerProps = {
   isDark: boolean;
   syncStatus: "connected" | "disconnected" | "error";
   chat: UseCanvasChatResult;
+  /** Names of people currently typing in the group chat. */
+  typingNames?: string[];
+  onTyping?: () => void;
+  onStopTyping?: () => void;
+  /** Pan the canvas to a commented shape. */
+  onFocusShape?: (shapeId: string) => void;
 };
 
 type MessengerTab = "group" | "direct" | "comments";
 
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+const URL_PATTERN = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g;
+const AVATAR_COLORS = ["#b5472e", "#4f7a54", "#3c6585", "#a8801f", "#76598a", "#80664a"];
+
+function hashColor(id: string) {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts.length > 1 ? parts[parts.length - 1]![0]! : "")).toUpperCase();
+}
+
 function formatTime(isoDate: string) {
   try {
-    return new Intl.DateTimeFormat(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(isoDate));
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(isoDate));
   } catch {
     return isoDate;
   }
 }
-
-const GROUP_WINDOW_MS = 5 * 60 * 1000;
-const URL_PATTERN = /(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g;
 
 function dayKey(isoDate: string) {
   const d = new Date(isoDate);
@@ -62,8 +76,25 @@ function formatDayLabel(isoDate: string) {
   }).format(d);
 }
 
+function shortShapeId(shapeId: string | null | undefined) {
+  if (!shapeId) return "shape";
+  return shapeId.length > 8 ? shapeId.slice(0, 6) : shapeId;
+}
+
+function Avatar({ id, name, size = 28 }: { id: string; name: string; size?: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="grid shrink-0 place-items-center rounded-[5px] font-mono font-semibold text-white"
+      style={{ width: size, height: size, background: hashColor(id), fontSize: size * 0.38 }}
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
 /** Message text with http(s) links made clickable (opened safely in a new tab). */
-function LinkifiedText({ text, isMine }: { text: string; isMine: boolean }) {
+function LinkifiedText({ text }: { text: string }) {
   return (
     <>
       {text.split(URL_PATTERN).map((part, i) =>
@@ -73,7 +104,7 @@ function LinkifiedText({ text, isMine }: { text: string; isMine: boolean }) {
             href={part}
             target="_blank"
             rel="noopener noreferrer"
-            className={`break-all underline underline-offset-2 ${isMine ? "text-white" : "text-[#0a7cff]"}`}
+            className="break-all !text-signal !underline decoration-signal/40 underline-offset-2 hover:decoration-signal"
           >
             {part}
           </a>
@@ -85,81 +116,66 @@ function LinkifiedText({ text, isMine }: { text: string; isMine: boolean }) {
   );
 }
 
-function shortShapeId(shapeId: string | null | undefined) {
-  if (!shapeId) return "shape";
-  return shapeId.length > 10 ? `${shapeId.slice(0, 8)}...` : shapeId;
-}
-
-function MessageBubble({
+function Row({
   message,
   isMine,
-  isDark,
-  showShapeId = false,
-  grouped = false,
+  grouped,
+  onFocusShape,
+  showShape,
 }: {
   message: CanvasChatMessage;
   isMine: boolean;
-  isDark: boolean;
-  showShapeId?: boolean;
-  /** Same sender as the previous message within a few minutes: compact, no header. */
-  grouped?: boolean;
+  grouped: boolean;
+  onFocusShape?: (shapeId: string) => void;
+  showShape: boolean;
 }) {
+  const failed = message.deliveryState === "failed";
   return (
-    <div
-      className={`flex ${isMine ? "justify-end" : "justify-start"} ${grouped ? "-mt-2" : ""}`}
-      title={grouped ? formatTime(message.createdAt) : undefined}
-    >
-      <div
-        className={`min-w-0 max-w-[82%] ${isMine ? "items-end" : "items-start"} flex flex-col`}
-      >
-        <div
-          className={`mb-1 flex items-center gap-2 text-[11px] ${
-            isDark ? "text-white/45" : "text-slate-500"
-          } ${grouped && !(showShapeId && message.shapeId) ? "hidden" : ""}`}
-        >
-          {!grouped && <span>{isMine ? "You" : message.sender.name}</span>}
-          {!grouped && <span>{formatTime(message.createdAt)}</span>}
-          {showShapeId && message.shapeId ? (
-            <span
-              className={`rounded-full px-2 py-0.5 ${
-                isDark
-                  ? "bg-white/10 text-white/70"
-                  : "bg-slate-100 text-slate-600"
-              }`}
-            >
-              #{shortShapeId(message.shapeId)}
+    <div className={`group relative flex gap-2.5 ${grouped ? "pt-0.5" : "pt-3"}`}>
+      <div className="w-7 shrink-0">
+        {grouped ? (
+          <span className="invisible font-mono text-[10px] text-ink-3 group-hover:visible">
+            {formatTime(message.createdAt).replace(/\s?[AP]M/i, "")}
+          </span>
+        ) : (
+          <Avatar id={message.sender.id} name={message.sender.name} />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        {!grouped && (
+          <div className="flex items-baseline gap-2">
+            <span className="text-[12.5px] font-semibold text-ink">
+              {isMine ? "You" : message.sender.name}
             </span>
-          ) : null}
-        </div>
-        <div
-          className={`max-w-full whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm shadow-sm [overflow-wrap:anywhere] ${
-            message.deliveryState === "failed"
-              ? isDark
-                ? "border border-red-400/30 bg-red-500/12 text-red-100"
-                : "border border-red-200 bg-red-50 text-red-700"
-              : isMine
-                ? "bg-[#0a7cff] text-white"
-                : isDark
-                  ? "border border-white/10 bg-[#1e1e1e] text-white/92"
-                  : "border border-slate-200 bg-white text-slate-700"
-          }`}
+            <span className="font-mono text-[10px] tracking-tight text-ink-3">
+              {formatTime(message.createdAt)}
+            </span>
+          </div>
+        )}
+        {showShape && message.shapeId && (
+          <button
+            type="button"
+            onClick={() => onFocusShape?.(message.shapeId!)}
+            disabled={!onFocusShape}
+            title="Show this shape on the canvas"
+            className="mb-0.5 mt-0.5 inline-flex items-center gap-1 rounded-[3px] border border-rule px-1.5 py-px font-mono text-[10px] text-ink-2 transition hover:border-signal hover:text-signal disabled:hover:border-rule disabled:hover:text-ink-2"
+          >
+            <span aria-hidden="true">◎</span>
+            {shortShapeId(message.shapeId)}
+          </button>
+        )}
+        <p
+          className={`whitespace-pre-wrap break-words text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] ${
+            failed ? "text-signal" : "text-ink"
+          } ${message.deliveryState === "sending" ? "opacity-55" : ""}`}
         >
-          <LinkifiedText text={message.body} isMine={isMine} />
-        </div>
-        {message.deliveryState === "sending" ? (
-          <div
-            className={`mt-1 text-[11px] ${isDark ? "text-white/40" : "text-slate-400"}`}
-          >
-            Sending…
-          </div>
-        ) : null}
-        {message.deliveryState === "failed" ? (
-          <div
-            className={`mt-1 text-[11px] ${isDark ? "text-red-300" : "text-red-600"}`}
-          >
-            {message.failureReason ?? "Failed to send"}
-          </div>
-        ) : null}
+          <LinkifiedText text={message.body} />
+        </p>
+        {failed && (
+          <p className="mt-0.5 font-mono text-[10.5px] text-signal">
+            Not sent{message.failureReason ? ` — ${message.failureReason}` : ""}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -168,13 +184,13 @@ function MessageBubble({
 function MessageList({
   messages,
   currentUserId,
-  isDark,
-  showShapeId = false,
+  showShape = false,
+  onFocusShape,
 }: {
   messages: CanvasChatMessage[];
   currentUserId: string | null;
-  isDark: boolean;
-  showShapeId?: boolean;
+  showShape?: boolean;
+  onFocusShape?: (shapeId: string) => void;
 }) {
   return (
     <>
@@ -188,22 +204,20 @@ function MessageList({
           (prev.shapeId ?? null) === (message.shapeId ?? null) &&
           Date.parse(message.createdAt) - Date.parse(prev.createdAt) < GROUP_WINDOW_MS;
         return (
-          <div key={message.id} className="contents">
+          <div key={message.id}>
             {newDay && (
-              <div
-                className={`flex items-center gap-3 text-[11px] ${isDark ? "text-white/35" : "text-slate-400"}`}
-              >
-                <span className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              <div className="flex items-center gap-3 pb-1 pt-4 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+                <span className="h-px flex-1 bg-rule" />
                 {formatDayLabel(message.createdAt)}
-                <span className={`h-px flex-1 ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <span className="h-px flex-1 bg-rule" />
               </div>
             )}
-            <MessageBubble
+            <Row
               message={message}
               isMine={message.sender.id === currentUserId}
-              isDark={isDark}
-              showShapeId={showShapeId}
               grouped={grouped}
+              showShape={showShape && !grouped}
+              onFocusShape={onFocusShape}
             />
           </div>
         );
@@ -212,66 +226,152 @@ function MessageList({
   );
 }
 
+/**
+ * Scroll container that follows new messages only while you're at the bottom
+ * (or when you wrote the message); otherwise it offers a "new messages" jump
+ * instead of yanking you away from history you're reading.
+ */
+function Transcript({
+  children,
+  count,
+  lastIsMine,
+  resetKey,
+  footer,
+}: {
+  children: React.ReactNode;
+  count: number;
+  lastIsMine: boolean;
+  resetKey: string;
+  footer?: React.ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const stickRef = useRef(true);
+  const prevCountRef = useRef(0);
+  const [hasNew, setHasNew] = useState(false);
+
+  const toBottom = useCallback((smooth: boolean) => {
+    const el = ref.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    setHasNew(false);
+  }, []);
+
+  useEffect(() => {
+    stickRef.current = true;
+    prevCountRef.current = 0;
+    setHasNew(false);
+    requestAnimationFrame(() => toBottom(false));
+  }, [resetKey, toBottom]);
+
+  useEffect(() => {
+    const grew = count > prevCountRef.current;
+    const first = prevCountRef.current === 0;
+    prevCountRef.current = count;
+    if (!grew) return;
+    if (first || stickRef.current || lastIsMine) requestAnimationFrame(() => toBottom(!first));
+    else setHasNew(true);
+  }, [count, lastIsMine, toBottom]);
+
+  return (
+    <div className="relative min-h-0 flex-1">
+      <div
+        ref={ref}
+        onScroll={() => {
+          const el = ref.current;
+          if (!el) return;
+          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
+          if (stickRef.current) setHasNew(false);
+        }}
+        className="canvas-hide-scrollbar h-full overflow-y-auto px-4 pb-2"
+      >
+        {children}
+        {footer}
+      </div>
+      {hasNew && (
+        <button
+          type="button"
+          onClick={() => toBottom(true)}
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-[4px] bg-ink px-2.5 py-1 font-mono text-[10.5px] text-paper shadow-md"
+        >
+          ↓ New messages
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Empty({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div className="px-1 pt-10 text-center">
+      <p className="font-display text-[26px] italic leading-none text-ink-2">{title}</p>
+      <p className="mx-auto mt-2 max-w-[17rem] text-[12px] leading-relaxed text-ink-3">{hint}</p>
+    </div>
+  );
+}
+
 function Composer({
   value,
   onChange,
   onSend,
   placeholder,
-  isDark,
   disabled = false,
+  onActivity,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
   placeholder: string;
-  isDark: boolean;
   disabled?: boolean;
+  onActivity?: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     // Shrink back after the draft is sent/cleared.
     if (!value && textareaRef.current) textareaRef.current.style.height = "auto";
   }, [value]);
+  const nearLimit = value.length > 1800;
   return (
-    <div
-      className={`flex items-end gap-2 rounded-2xl border p-2 ${
-        isDark ? "border-white/10 bg-[#161616]" : "border-slate-200 bg-white"
-      }`}
-    >
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(event) => {
-          onChange(event.target.value);
-          const el = event.target;
-          el.style.height = "auto";
-          el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
-        }}
-        maxLength={2000}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            onSend();
-          }
-        }}
-        disabled={disabled}
-        rows={1}
-        placeholder={placeholder}
-        className={`max-h-24 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none ${
-          isDark
-            ? "text-white placeholder:text-white/35"
-            : "text-slate-700 placeholder:text-slate-400"
-        } ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
-      />
-      <button
-        type="button"
-        onClick={onSend}
-        disabled={disabled || value.trim().length === 0}
-        className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0a7cff] text-white transition hover:bg-[#0670e7] disabled:cursor-not-allowed disabled:bg-[#8ebeff]"
-        title="Send message"
+    <div className="border-t border-rule px-3 pb-3 pt-2.5">
+      <div
+        className={`flex items-end gap-2 rounded-[6px] border border-rule bg-paper px-2.5 py-1.5 transition focus-within:border-ink ${
+          disabled ? "opacity-50" : ""
+        }`}
       >
-        <SendHorizontal className="h-4 w-4" />
-      </button>
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            if (event.target.value) onActivity?.();
+            const el = event.target;
+            el.style.height = "auto";
+            el.style.height = `${Math.min(el.scrollHeight, 104)}px`;
+          }}
+          maxLength={2000}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              onSend();
+            }
+          }}
+          disabled={disabled}
+          rows={1}
+          placeholder={placeholder}
+          className="max-h-[104px] min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[13.5px] text-ink outline-none placeholder:text-ink-3"
+        />
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={disabled || value.trim().length === 0}
+          className="mb-0.5 shrink-0 rounded-[4px] bg-ink px-2.5 py-1 font-mono text-[11px] font-medium text-paper transition enabled:hover:bg-signal disabled:cursor-not-allowed disabled:opacity-30"
+          title="Send (Enter)"
+        >
+          Send ↵
+        </button>
+      </div>
+      {nearLimit && (
+        <p className="mt-1 text-right font-mono text-[10px] text-ink-3">{value.length}/2000</p>
+      )}
     </div>
   );
 }
@@ -281,9 +381,12 @@ export function CanvasMessenger({
   roomKey,
   connectedUsersCount,
   selectedShapeIds,
-  isDark,
   syncStatus,
   chat,
+  typingNames,
+  onTyping,
+  onStopTyping,
+  onFocusShape,
 }: CanvasMessengerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<MessengerTab>("group");
@@ -299,7 +402,6 @@ export function CanvasMessenger({
   const [directUnreadCount, setDirectUnreadCount] = useState(0);
   const [seenGeneralMessageId, setSeenGeneralMessageId] = useState(0);
   const [seenDirectMessageId, setSeenDirectMessageId] = useState(0);
-  const scrollEndRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedGeneralSeenRef = useRef(false);
   const hasInitializedDirectSeenRef = useRef(false);
 
@@ -403,17 +505,6 @@ export function CanvasMessenger({
       ),
     [directIncomingMessages],
   );
-
-  useEffect(() => {
-    scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [
-    activeTab,
-    chat.comments.length,
-    chat.directMessages.length,
-    chat.groupMessages.length,
-    selectedPartnerId,
-    commentView,
-  ]);
 
   useEffect(() => {
     if (chat.isLoading || hasInitializedGeneralSeenRef.current) {
@@ -550,18 +641,6 @@ export function CanvasMessenger({
     seenDirectMessageId,
   ]);
 
-  const syncToneClass =
-    syncStatus === "connected"
-      ? "bg-green-500"
-      : syncStatus === "error"
-        ? "bg-red-500"
-        : "bg-yellow-500";
-
-  const panelSurface = isDark
-    ? "border-white/10 bg-[#101114]/95 text-white"
-    : "border-slate-200 bg-white/95 text-slate-800";
-  const mutedText = isDark ? "text-white/55" : "text-slate-500";
-  const scrollAreaClass = "canvas-hide-scrollbar";
   const totalUnreadCount = unreadCount + directUnreadCount;
 
   const sendGroupMessage = () => {
@@ -570,12 +649,13 @@ export function CanvasMessenger({
 
     const sent = chat.sendGroupMessage(next);
     if (!sent) {
-      setComposerError("Chat is waiting for the canvas connection.");
+      setComposerError("Waiting for the connection — try again in a moment.");
       return;
     }
 
     setComposerError(null);
     setGroupDraft("");
+    onStopTyping?.();
   };
 
   const sendDirectMessage = () => {
@@ -607,379 +687,285 @@ export function CanvasMessenger({
     setCommentView("selected");
   };
 
+  const tabs: Array<{ id: MessengerTab; label: string; count?: number }> = [
+    { id: "group", label: "Room" },
+    { id: "direct", label: "Direct", count: directUnreadCount },
+    { id: "comments", label: "Notes", count: chat.comments.length || undefined },
+  ];
+  const typingLabel =
+    !typingNames || typingNames.length === 0
+      ? null
+      : typingNames.length === 1
+        ? `${typingNames[0]} is typing`
+        : typingNames.length === 2
+          ? `${typingNames[0]} and ${typingNames[1]} are typing`
+          : "Several people are typing";
+  const onlineStack = chat.dmParticipants.filter((p) => p.isOnline).slice(0, 4);
+  const lastOf = (list: CanvasChatMessage[]) => list[list.length - 1];
+  const statusText =
+    syncStatus === "connected" ? null : syncStatus === "error" ? "Connection problem" : "Reconnecting…";
+
   return (
     <>
       {isOpen ? (
-        <div
-          className={`absolute bottom-20 right-4 z-30 flex h-[min(72dvh,38rem)] w-[min(92vw,25rem)] flex-col overflow-hidden rounded-[26px] border shadow-[0_28px_60px_rgba(15,23,42,0.28)] ${panelSurface}`}
-          style={{
-            backdropFilter: "blur(14px)",
-            WebkitBackdropFilter: "blur(14px)",
-            isolation: "isolate",
-            contain: "layout paint",
-          }}
+        <section
+          aria-label="Room messenger"
+          className="absolute bottom-[8.25rem] right-4 z-40 flex h-[min(68dvh,38rem)] w-[min(94vw,26rem)] flex-col overflow-hidden rounded-[8px] border border-rule-strong bg-surface text-ink shadow-[0_1px_0_var(--rule),0_26px_50px_-22px_rgba(0,0,0,0.55)]"
+          style={{ isolation: "isolate", contain: "layout paint", fontFamily: "var(--font-ui)" }}
         >
-          <div className="flex items-center justify-between bg-linear-to-r from-[#0a7cff] via-[#1783ff] to-[#22a2ff] px-4 py-3 text-white">
-            <div>
-              <div className="text-sm font-semibold">Canvas Messenger</div>
-              <div className="text-xs text-white/80">
-                {connectedUsersCount}{" "}
-                {connectedUsersCount === 1 ? "person here" : "people here"}
-              </div>
+          <header className="flex items-end justify-between gap-3 px-4 pb-2 pt-3.5">
+            <div className="min-w-0">
+              <h2 className="font-display text-[28px] leading-none tracking-tight">Conversation</h2>
+              <p className="mt-1.5 flex items-center gap-2 font-mono text-[10.5px] text-ink-3">
+                <span
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${
+                    syncStatus === "connected" ? "bg-[#4f9a5b]" : "bg-signal"
+                  }`}
+                />
+                {statusText ??
+                  `${connectedUsersCount} ${connectedUsersCount === 1 ? "person" : "people"} here`}
+                {onlineStack.length > 0 && (
+                  <span className="ml-1 flex -space-x-1.5">
+                    {onlineStack.map((p) => (
+                      <span key={p.id} className="rounded-[5px] ring-2 ring-[var(--surface)]">
+                        <Avatar id={p.id} name={p.name} size={16} />
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </p>
             </div>
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 transition hover:bg-white/25"
               aria-label="Close chat"
+              className="grid h-7 w-7 place-items-center rounded-[4px] text-ink-3 transition hover:bg-paper-2 hover:text-ink"
             >
-              <X className="h-4 w-4" />
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
+              </svg>
             </button>
-          </div>
+          </header>
 
-          <div
-            className={`flex gap-2 border-b px-3 py-3 ${isDark ? "border-white/10" : "border-slate-200"}`}
-          >
-            {[
-              { id: "group" as const, label: "Canvas", icon: Users },
-              {
-                id: "direct" as const,
-                label: "Direct",
-                icon: MessageCircleMore,
-              },
-              {
-                id: "comments" as const,
-                label: "Comments",
-                icon: MessagesSquare,
-              },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-
+          <nav className="flex gap-5 border-b border-rule px-4" role="tablist">
+            {tabs.map((tab) => {
+              const active = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
+                  role="tab"
+                  aria-selected={active}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative flex flex-1 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition ${
-                    isActive
-                      ? "bg-[#0a7cff] text-white"
-                      : isDark
-                        ? "bg-white/5 text-white/75 hover:bg-white/10"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  className={`relative -mb-px flex items-center gap-1.5 border-b-2 py-2 text-[13px] font-medium transition ${
+                    active
+                      ? "border-ink text-ink"
+                      : "border-transparent text-ink-3 hover:text-ink-2"
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
                   {tab.label}
-                  {tab.id === "direct" && directUnreadCount > 0 ? (
-                    <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white shadow-lg">
-                      {directUnreadCount > 9 ? "9+" : directUnreadCount}
+                  {tab.count ? (
+                    <span
+                      className={`font-mono text-[10px] ${
+                        tab.id === "direct" ? "rounded-[3px] bg-signal px-1 text-white" : "text-ink-3"
+                      }`}
+                    >
+                      {tab.count > 99 ? "99+" : tab.count}
                     </span>
                   ) : null}
                 </button>
               );
             })}
-          </div>
+          </nav>
 
-          {composerError ? (
-            <div
-              className={`px-4 pt-3 text-xs ${isDark ? "text-red-300" : "text-red-600"}`}
-            >
-              {composerError}
-            </div>
-          ) : null}
+          {(composerError || chat.error) && (
+            <p className="px-4 pt-2 font-mono text-[11px] text-signal">{composerError ?? chat.error}</p>
+          )}
 
-          {chat.error ? (
-            <div
-              className={`px-4 pt-3 text-xs ${isDark ? "text-red-300" : "text-red-600"}`}
-            >
-              {chat.error}
-            </div>
-          ) : null}
-
-          {activeTab === "direct" && chat.participants.length > 0 ? (
-            <div
-              className={`border-b px-4 py-2 text-xs ${isDark ? "border-white/10 text-white/60" : "border-slate-200 text-slate-500"}`}
-            >
-              {chat.participants.length}{" "}
-              {chat.participants.length === 1
-                ? "participant available"
-                : "participants available"}
-            </div>
-          ) : null}
-
-          <div className="min-h-0 flex-1">
-            {activeTab === "group" ? (
-              <div className="flex h-full flex-col">
-                <div className={`px-4 pt-3 text-xs ${mutedText}`}>
-                  Canvas-wide chat for everyone in this room.
-                </div>
-                <div
-                  className={`min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 ${scrollAreaClass}`}
-                >
-                  {chat.isLoading ? (
-                    <div className={mutedText}>Loading messages...</div>
-                  ) : null}
-                  {!chat.isLoading && chat.groupMessages.length === 0 ? (
-                    <div className={mutedText}>
-                      Start the room conversation.
-                    </div>
-                  ) : null}
-                  <MessageList
-                    messages={chat.groupMessages}
-                    currentUserId={currentUserId}
-                    isDark={isDark}
+          {activeTab === "group" && (
+            <>
+              <Transcript
+                count={chat.groupMessages.length}
+                lastIsMine={lastOf(chat.groupMessages)?.sender.id === currentUserId}
+                resetKey="group"
+                footer={
+                  typingLabel ? (
+                    <p className="flex items-center gap-1.5 pt-2 font-mono text-[10.5px] text-ink-3" aria-live="polite">
+                      <span className="flex gap-0.5">
+                        {[0, 0.15, 0.3].map((d) => (
+                          <span
+                            key={d}
+                            className="inline-block h-1 w-1 rounded-full bg-ink-3"
+                            style={{ animation: `bounce 0.9s ${d}s ease-in-out infinite` }}
+                          />
+                        ))}
+                      </span>
+                      {typingLabel}
+                    </p>
+                  ) : null
+                }
+              >
+                {chat.isLoading && <p className="pt-4 font-mono text-[11px] text-ink-3">Loading…</p>}
+                {!chat.isLoading && chat.groupMessages.length === 0 && (
+                  <Empty
+                    title="Nothing said yet."
+                    hint="Anything you write here goes to everyone on this canvas. Keep it short, point at things."
                   />
-                  <div ref={scrollEndRef} />
-                </div>
-                <div className="p-3">
-                  <Composer
-                    value={groupDraft}
-                    onChange={setGroupDraft}
-                    onSend={sendGroupMessage}
-                    placeholder="Message everyone on the canvas"
-                    isDark={isDark}
-                    disabled={!canAttemptSend}
-                  />
-                </div>
-              </div>
-            ) : null}
+                )}
+                <MessageList messages={chat.groupMessages} currentUserId={currentUserId} />
+              </Transcript>
+              <Composer
+                value={groupDraft}
+                onChange={(v) => {
+                  setGroupDraft(v);
+                  if (!v) onStopTyping?.();
+                }}
+                onActivity={onTyping}
+                onSend={sendGroupMessage}
+                placeholder="Write to everyone on this canvas"
+                disabled={!canAttemptSend}
+              />
+            </>
+          )}
 
-            {activeTab === "direct" ? (
-              <div className="flex h-full min-h-0 overflow-hidden">
-                <div
-                  className={`w-32 shrink-0 border-r p-2 ${isDark ? "border-white/10" : "border-slate-200"}`}
-                >
-                  <div
-                    className={`mb-2 px-2 text-[11px] uppercase tracking-[0.18em] ${mutedText}`}
-                  >
-                    People
-                  </div>
-                  <div
-                    className={`space-y-1 overflow-y-auto ${scrollAreaClass}`}
-                  >
-                    {chat.dmParticipants.length === 0 ? (
-                      <div className={`px-2 text-xs ${mutedText}`}>
-                        {connectedUsersCount > 1
-                          ? "People are connected, but participant details are still loading."
-                          : "No collaborators yet."}
-                      </div>
-                    ) : null}
-                    {chat.dmParticipants.map((participant) => {
-                      const isActive = participant.id === selectedPartnerId;
-                      const latestMessage = chat
-                        .getDirectMessagesForUser(participant.id)
-                        .slice(-1)[0];
-
-                      return (
-                        <button
-                          key={participant.id}
-                          type="button"
-                          onClick={() => setSelectedPartnerId(participant.id)}
-                          className={`w-full rounded-2xl px-2 py-2 text-left transition ${
-                            isActive
-                              ? "bg-[#0a7cff] text-white"
-                              : isDark
-                                ? "hover:bg-white/5"
-                                : "hover:bg-slate-100"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                                participant.isOnline
-                                  ? "bg-green-400"
-                                  : isActive
-                                    ? "bg-white/60"
-                                    : "bg-slate-300"
-                              }`}
-                            />
-                            <span className="truncate text-sm font-medium">
-                              {participant.name}
-                            </span>
-                          </div>
-                          <div
-                            className={`mt-1 truncate text-[11px] ${isActive ? "text-white/75" : mutedText}`}
-                          >
-                            {latestMessage?.body ??
-                              (participant.isOnline
-                                ? "Online now"
-                                : "No messages yet")}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                  <div
-                    className={`border-b px-4 py-3 ${isDark ? "border-white/10" : "border-slate-200"}`}
-                  >
-                    <div className="text-sm font-semibold">
-                      {selectedPartner?.name ?? "Select someone"}
-                    </div>
-                    <div className={`text-xs ${mutedText}`}>
-                      {selectedPartner
-                        ? selectedPartner.isOnline
-                          ? "Active on this canvas"
-                          : "Room member"
-                        : "Choose a teammate to DM"}
-                    </div>
-                  </div>
-                  <div
-                    className={`min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 ${scrollAreaClass}`}
-                  >
-                    {!selectedPartner ? (
-                      <div className={mutedText}>
-                        Pick a participant to start chatting.
-                      </div>
-                    ) : null}
-                    {selectedPartner &&
-                    directMessagesForPartner.length === 0 ? (
-                      <div className={mutedText}>
-                        Your personal thread with {selectedPartner.name} will
-                        appear here.
-                      </div>
-                    ) : null}
-                    <MessageList
-                      messages={directMessagesForPartner}
-                      currentUserId={currentUserId}
-                      isDark={isDark}
-                    />
-                    <div ref={scrollEndRef} />
-                  </div>
-                  <div className="p-3">
-                    <Composer
-                      value={directDraft}
-                      onChange={setDirectDraft}
-                      onSend={sendDirectMessage}
-                      placeholder={
-                        selectedPartner
-                          ? `Message ${selectedPartner.name}`
-                          : "Select a collaborator first"
-                      }
-                      isDark={isDark}
-                      disabled={!selectedPartner || !canAttemptSend}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {activeTab === "comments" ? (
-              <div className="flex h-full flex-col">
-                <div
-                  className={`border-b px-4 py-3 ${isDark ? "border-white/10" : "border-slate-200"}`}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
+          {activeTab === "direct" && (
+            <>
+              <div className="canvas-hide-scrollbar flex gap-1 overflow-x-auto border-b border-rule px-3 py-2">
+                {chat.dmParticipants.length === 0 && (
+                  <p className="px-1 py-1 text-[12px] text-ink-3">
+                    {connectedUsersCount > 1
+                      ? "Loading collaborators…"
+                      : "No one else is on this canvas yet."}
+                  </p>
+                )}
+                {chat.dmParticipants.map((participant) => {
+                  const active = participant.id === selectedPartnerId;
+                  return (
                     <button
+                      key={participant.id}
                       type="button"
-                      onClick={() => setCommentView("all")}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                        commentView === "all"
-                          ? "bg-[#0a7cff] text-white"
-                          : isDark
-                            ? "bg-white/5 text-white/75"
-                            : "bg-slate-100 text-slate-600"
+                      onClick={() => setSelectedPartnerId(participant.id)}
+                      className={`flex shrink-0 items-center gap-2 rounded-[5px] border px-2 py-1 text-[12.5px] transition ${
+                        active
+                          ? "border-ink bg-paper-2 text-ink"
+                          : "border-transparent text-ink-2 hover:bg-paper-2"
                       }`}
                     >
-                      All comments
+                      <span className="relative">
+                        <Avatar id={participant.id} name={participant.name} size={20} />
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-[var(--surface)] ${
+                            participant.isOnline ? "bg-[#4f9a5b]" : "bg-ink-3/60"
+                          }`}
+                        />
+                      </span>
+                      {participant.name}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectedShapeId && setCommentView("selected")
-                      }
-                      disabled={!selectedShapeId}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                        commentView === "selected" && selectedShapeId
-                          ? "bg-[#0a7cff] text-white"
-                          : isDark
-                            ? "bg-white/5 text-white/75"
-                            : "bg-slate-100 text-slate-600"
-                      } disabled:cursor-not-allowed disabled:opacity-45`}
-                    >
-                      {selectedShapeId
-                        ? `Selected #${shortShapeId(selectedShapeId)}`
-                        : "Select a shape to comment"}
-                    </button>
-                  </div>
-                  <div className={`mt-2 text-xs ${mutedText}`}>
-                    Comments stay attached to shapes and reload with the room
-                    history.
-                  </div>
-                </div>
-                <div
-                  className={`min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 ${scrollAreaClass}`}
-                >
-                  {visibleComments.length === 0 ? (
-                    <div className={mutedText}>
-                      {commentView === "selected" && selectedShapeId
-                        ? "No comments on this shape yet."
-                        : "Shape comments will appear here."}
-                    </div>
-                  ) : null}
-                  <MessageList
-                    messages={visibleComments}
-                    currentUserId={currentUserId}
-                    isDark={isDark}
-                    showShapeId={commentView === "all"}
-                  />
-                  <div ref={scrollEndRef} />
-                </div>
-                <div className="p-3">
-                  <Composer
-                    value={commentDraft}
-                    onChange={setCommentDraft}
-                    onSend={sendComment}
-                    placeholder={
-                      selectedShapeId
-                        ? `Comment on #${shortShapeId(selectedShapeId)}`
-                        : "Select a shape to leave a comment"
-                    }
-                    isDark={isDark}
-                    disabled={!selectedShapeId || !canAttemptSend}
-                  />
-                </div>
+                  );
+                })}
               </div>
-            ) : null}
-          </div>
-        </div>
+              <Transcript
+                count={directMessagesForPartner.length}
+                lastIsMine={lastOf(directMessagesForPartner)?.sender.id === currentUserId}
+                resetKey={`direct:${selectedPartnerId ?? ""}`}
+              >
+                {!selectedPartner ? (
+                  <Empty title="Pick someone." hint="Direct messages are private between the two of you." />
+                ) : directMessagesForPartner.length === 0 ? (
+                  <Empty
+                    title={`Just you and ${selectedPartner.name.split(" ")[0]}.`}
+                    hint="Only the two of you can see this thread."
+                  />
+                ) : null}
+                <MessageList messages={directMessagesForPartner} currentUserId={currentUserId} />
+              </Transcript>
+              <Composer
+                value={directDraft}
+                onChange={setDirectDraft}
+                onSend={sendDirectMessage}
+                placeholder={selectedPartner ? `Message ${selectedPartner.name}` : "Pick someone first"}
+                disabled={!selectedPartner || !canAttemptSend}
+              />
+            </>
+          )}
+
+          {activeTab === "comments" && (
+            <>
+              <div className="flex items-center gap-1 border-b border-rule px-3 py-2 text-[12px]">
+                {(["all", "selected"] as const).map((view) => {
+                  const disabled = view === "selected" && !selectedShapeId;
+                  const active = commentView === view && !disabled;
+                  return (
+                    <button
+                      key={view}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setCommentView(view)}
+                      className={`rounded-[4px] px-2 py-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                        active ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"
+                      }`}
+                    >
+                      {view === "all"
+                        ? "Every note"
+                        : selectedShapeId
+                          ? `This shape · ${shortShapeId(selectedShapeId)}`
+                          : "Select a shape"}
+                    </button>
+                  );
+                })}
+              </div>
+              <Transcript
+                count={visibleComments.length}
+                lastIsMine={lastOf(visibleComments)?.sender.id === currentUserId}
+                resetKey={`comments:${commentView}:${commentView === "selected" ? selectedShapeId : ""}`}
+              >
+                {visibleComments.length === 0 && (
+                  <Empty
+                    title="No notes here."
+                    hint={
+                      commentView === "selected" && selectedShapeId
+                        ? "Nobody has commented on this shape yet."
+                        : "Select a shape and write a note. It stays pinned to that shape."
+                    }
+                  />
+                )}
+                <MessageList
+                  messages={visibleComments}
+                  currentUserId={currentUserId}
+                  showShape={commentView === "all"}
+                  onFocusShape={onFocusShape}
+                />
+              </Transcript>
+              <Composer
+                value={commentDraft}
+                onChange={setCommentDraft}
+                onSend={sendComment}
+                placeholder={
+                  selectedShapeId ? `Note on ${shortShapeId(selectedShapeId)}` : "Select a shape to leave a note"
+                }
+                disabled={!selectedShapeId || !canAttemptSend}
+              />
+            </>
+          )}
+        </section>
       ) : null}
 
       <div className="absolute bottom-20 right-4 z-20">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setIsOpen((current) => !current)}
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-linear-to-br from-[#0a7cff] via-[#1783ff] to-[#29a8ff] text-white shadow-[0_18px_38px_rgba(10,124,255,0.38)] transition hover:scale-[1.03]"
-            aria-label={
-              isOpen ? "Close canvas messenger" : "Open canvas messenger"
-            }
-          >
-            <MessageCircleMore className="h-5 w-5" />
-          </button>
-          {totalUnreadCount > 0 ? (
-            <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white shadow-lg">
+        <button
+          type="button"
+          onClick={() => setIsOpen((current) => !current)}
+          className="relative grid h-11 w-11 place-items-center rounded-[8px] border border-rule-strong bg-ink text-paper shadow-[3px_3px_0_var(--signal)] transition active:translate-x-px active:translate-y-px active:shadow-[2px_2px_0_var(--signal)]"
+          aria-label={isOpen ? "Close canvas messenger" : "Open canvas messenger"}
+        >
+          <svg viewBox="0 0 20 20" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round">
+            <path d="M3 4.5h14v9H9.5L6 16.5v-3H3z" />
+          </svg>
+          {totalUnreadCount > 0 && !isOpen && (
+            <span className="absolute -right-1.5 -top-1.5 grid h-[18px] min-w-[18px] place-items-center rounded-[4px] bg-signal px-1 font-mono text-[10px] font-semibold text-white">
               {totalUnreadCount > 9 ? "9+" : totalUnreadCount}
             </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="absolute bottom-4 right-4 z-20">
-        <div
-          className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium backdrop-blur ${
-            isDark
-              ? "bg-[#151515]/88 text-white/88"
-              : "bg-white/88 text-slate-700"
-          }`}
-        >
-          <span className={`h-2.5 w-2.5 rounded-full ${syncToneClass}`} />
-          {connectedUsersCount}{" "}
-          {connectedUsersCount === 1 ? "user connected" : "users connected"}
-        </div>
+          )}
+        </button>
       </div>
     </>
   );
