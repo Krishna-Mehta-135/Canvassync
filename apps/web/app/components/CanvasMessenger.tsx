@@ -73,7 +73,7 @@ function LinkifiedText({ text, isMine }: { text: string; isMine: boolean }) {
             href={part}
             target="_blank"
             rel="noopener noreferrer"
-            className={`underline underline-offset-2 ${isMine ? "text-white" : "text-[#0a7cff]"}`}
+            className={`break-all underline underline-offset-2 ${isMine ? "text-white" : "text-[#0a7cff]"}`}
           >
             {part}
           </a>
@@ -110,7 +110,7 @@ function MessageBubble({
       title={grouped ? formatTime(message.createdAt) : undefined}
     >
       <div
-        className={`max-w-[82%] ${isMine ? "items-end" : "items-start"} flex flex-col`}
+        className={`min-w-0 max-w-[82%] ${isMine ? "items-end" : "items-start"} flex flex-col`}
       >
         <div
           className={`mb-1 flex items-center gap-2 text-[11px] ${
@@ -132,7 +132,7 @@ function MessageBubble({
           ) : null}
         </div>
         <div
-          className={`whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm shadow-sm [overflow-wrap:anywhere] ${
+          className={`max-w-full whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm shadow-sm [overflow-wrap:anywhere] ${
             message.deliveryState === "failed"
               ? isDark
                 ? "border border-red-400/30 bg-red-500/12 text-red-100"
