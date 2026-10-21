@@ -36,9 +36,16 @@ More menu → *Version history*. The WS server records a snapshot when canvas st
 
 Runs through the same queue → worker → Gemini pipeline as generation (`docs/architecture-ai-pipeline.md`). Set `GEMINI_MODEL_CANDIDATES` to model **aliases** such as `gemini-flash-latest` — pinned versions get retired (e.g. `gemini-2.5-flash-lite` now returns 404 for new users).
 
+- **One assistant box** (top right, or Cmd/Ctrl+K → type a sentence) decides per message whether you want a text answer or a diagram (`detectIntent` in `AiPromptBar.tsx`; `/draw` and `/ask` force it). Answers can offer **Draw this**; diagrams offer **Regenerate**. The conversation is stored per user per canvas (`AiChat` table) and the last turns are sent as context.
+- **Sources (RAG)** — the `+` menu or drag-and-drop adds PDF, Word, Excel, PowerPoint and text files, or the board's own text. Text is extracted **in the browser** (`app/lib/extractDocumentText.ts`): the server only ever receives plain text, so a hostile archive can't reach it. Office files are zip archives, so entries are inflated as a stream under hard byte caps (12 MB per part, 30 MB total, 10 MB compressed) and aborted on overrun regardless of what the headers claim. The backend chunks (~1000 chars), embeds with `gemini-embedding-001`, and retrieves with cosine + keyword scoring (`apps/http-backend/src/utils/rag.ts`). Limits: 12 sources and 600k characters per canvas. Answers cite `[n]` passages; the top passages are also prepended to diagram prompts.
+- **Structured diagrams** — new diagrams are generated as a graph spec (nodes, edges, colour roles) and laid out by the engine (`canvas-engine/src/diagram/spec.ts`), so connectors are bound and nothing overlaps. The worker falls back to raw model geometry if the spec path fails. Shape ids prefixed `sd-` tell the client the layout is final.
 - **Edit selection with AI** — select shapes → *Edit N selected with AI*. The result replaces the selection in one undoable step.
 - **Summarize board** — key points and action items from the board's text; copy it or add it as a note.
 - **Image → shapes** — upload a photo/screenshot; the browser downscales it to ≤ 1024 px and Gemini vision recreates nodes, connectors and labels.
+
+## Interface
+
+The UI uses one token set (`app/globals.css`: `paper`, `ink`, `signal`, hairline `rule`) with Instrument Serif for display type and Geist for UI. Cmd/Ctrl+K opens the command palette. The room messenger shows typing, groups messages, and notes jump to their shape.
 
 ## Diagramming
 
@@ -61,10 +68,11 @@ Runs through the same queue → worker → Gemini pipeline as generation (`docs/
 | `HISTORY_MIN_INTERVAL_MS` | `30000` | Minimum time between history snapshots for a room. |
 | `HISTORY_MAX_SNAPSHOTS_PER_ROOM` | `60` | Snapshots kept per room. |
 | `GEMINI_MODEL_CANDIDATES` | `gemini-flash-latest,gemini-flash-lite-latest` | Comma-separated model aliases tried in order. |
+| `GEMINI_API_KEY` (http-backend too) | — | The backend embeds sources and answers questions itself, so it needs the key as well as the worker. |
 
 ## Database migrations added
 
-`RoomSnapshot` (version history), `Room.publicToken` (public link), `RoomMember.role` (roles) and `RoomSlide` (slides). Deploys apply them with `prisma migrate deploy`.
+`RoomSnapshot` (version history), `Room.publicToken` (public link), `RoomMember.role` (roles), `RoomSlide` (slides), `RoomSource`/`SourceChunk` (RAG sources) and `AiChat` (per-user assistant conversations). Deploys apply them with `prisma migrate deploy`.
 
 ## Gotcha: transactions
 

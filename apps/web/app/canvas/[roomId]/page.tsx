@@ -1226,6 +1226,7 @@ export default function CanvasPage() {
   const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [isMessengerOpen, setIsMessengerOpen] = useState(false);
   const [modKey, setModKey] = useState("Ctrl");
   useEffect(() => {
     if (/mac|iphone|ipad/i.test(navigator.platform)) setModKey("⌘");
@@ -3075,7 +3076,10 @@ export default function CanvasPage() {
           {/* Assistant button */}
           <div className="relative">
             <AiTriggerButton
-              onClick={() => setIsAiOpen((o) => !o)}
+              onClick={() => {
+                setIsAiOpen((o) => !o);
+                setIsMessengerOpen(false);
+              }}
               isActive={isAiOpen}
               isDark={isDark}
             />
@@ -4102,6 +4106,7 @@ export default function CanvasPage() {
         commands={paletteCommands}
         onAsk={(text) => {
           setAssistantPrefill({ text, nonce: Date.now() });
+          setIsMessengerOpen(false);
           setIsAiOpen(true);
         }}
       />
@@ -4114,6 +4119,11 @@ export default function CanvasPage() {
         isDark={isDark}
         syncStatus={syncStatus}
         chat={chat}
+        open={isMessengerOpen}
+        onOpenChange={(next) => {
+          setIsMessengerOpen(next);
+          if (next) setIsAiOpen(false);
+        }}
         typingNames={typing.typingNames}
         onTyping={typing.notifyTyping}
         onStopTyping={typing.stopTyping}

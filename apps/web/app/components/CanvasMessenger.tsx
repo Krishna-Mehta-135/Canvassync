@@ -22,6 +22,9 @@ type CanvasMessengerProps = {
   isDark: boolean;
   syncStatus: "connected" | "disconnected" | "error";
   chat: UseCanvasChatResult;
+  /** Controlled open state, so the page can keep the messenger and assistant from overlapping. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   /** Names of people currently typing in the group chat. */
   typingNames?: string[];
   onTyping?: () => void;
@@ -383,12 +386,14 @@ export function CanvasMessenger({
   selectedShapeIds,
   syncStatus,
   chat,
+  open: isOpen,
+  onOpenChange,
   typingNames,
   onTyping,
   onStopTyping,
   onFocusShape,
 }: CanvasMessengerProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const setIsOpen = onOpenChange;
   const [activeTab, setActiveTab] = useState<MessengerTab>("group");
   const [groupDraft, setGroupDraft] = useState("");
   const [directDraft, setDirectDraft] = useState("");
@@ -953,7 +958,7 @@ export function CanvasMessenger({
       <div className="absolute bottom-20 right-4 z-20">
         <button
           type="button"
-          onClick={() => setIsOpen((current) => !current)}
+          onClick={() => onOpenChange(!isOpen)}
           className="relative grid h-11 w-11 place-items-center rounded-[8px] border border-rule-strong bg-ink text-paper shadow-[3px_3px_0_var(--signal)] transition active:translate-x-px active:translate-y-px active:shadow-[2px_2px_0_var(--signal)]"
           aria-label={isOpen ? "Close canvas messenger" : "Open canvas messenger"}
         >
