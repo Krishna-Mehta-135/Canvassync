@@ -49,9 +49,7 @@ export function finalizeEraserStroke(
 export function finalizeFreehandStroke(
   state: CanvasState,
   freehandPoints: Array<{ x: number; y: number; t?: number }>,
-  setSelection: (ids: string[], primaryId?: string | null) => void,
   renderScene: () => void,
-  resetToSelectTool: () => void,
   defaultShapeStyle?: DefaultShapeStyle,
 ) {
   if (freehandPoints.length > 1) {
@@ -69,12 +67,10 @@ export function finalizeFreehandStroke(
       type: "ADD_SHAPE",
       payload: freehandShape,
     });
-
-    setSelection([freehandShape.id], freehandShape.id);
   }
 
+  // Pencil stays armed after a stroke (like Excalidraw): no tool reset, no selection.
   renderScene();
-  resetToSelectTool();
 
   return [] as Array<{ x: number; y: number; t?: number }>;
 }

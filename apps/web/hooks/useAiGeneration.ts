@@ -29,6 +29,8 @@ export type AiGenerateOptions =
 
 interface UseAiGenerationOptions {
   roomId: number | null;
+  /** Scopes the persisted chat history to this user (per user, per canvas). */
+  userId?: string | null;
   httpBackend: string;
   apiClient: {
     post: (url: string, data?: unknown) => Promise<{ data: unknown }>;
@@ -42,7 +44,7 @@ interface UseAiGenerationOptions {
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_MAX_ATTEMPTS = 40;
-const AI_CHAT_STORAGE_KEY = "canvas-ai-chat-history";
+const AI_CHAT_STORAGE_PREFIX = "canvas-ai-chat-history";
 
 function nowTime() {
   return new Date().toLocaleTimeString([], {
@@ -53,6 +55,7 @@ function nowTime() {
 
 export function useAiGeneration({
   roomId,
+  userId,
   httpBackend,
   apiClient,
   onShapesGenerated,
@@ -65,36 +68,43 @@ export function useAiGeneration({
   const editTargetsRef = useRef<Map<string, string[]>>(new Map());
   const imageJobsRef = useRef<Set<string>>(new Set());
 
-  // Load messages from localStorage on mount
+  const storageKey =
+    roomId && userId ? `${AI_CHAT_STORAGE_PREFIX}:${userId}:${roomId}` : null;
+  // Which key `messages` currently belongs to, so a stale list is never written
+  // under another canvas's key while switching.
+  const loadedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    loadedKeyRef.current = null;
+    setMessages([]);
+    if (!storageKey || typeof window === "undefined") return;
     try {
-      const stored = window.localStorage.getItem(AI_CHAT_STORAGE_KEY);
+      const stored = window.localStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored) as ChatMessage[];
-        // Clear isGenerating flag on load since we don't resume polling across reloads yet
-        const sanitized = parsed.map((m) =>
-          m.isGenerating ? { ...m, isGenerating: false, text: "Interrupted — please try again." } : m,
+        // Polling isn't resumed across reloads.
+        setMessages(
+          parsed.map((m) =>
+            m.isGenerating
+              ? { ...m, isGenerating: false, text: "Interrupted — please try again." }
+              : m,
+          ),
         );
-        setMessages(sanitized);
       }
     } catch {
       // Ignore parse errors
     }
-  }, []);
+    loadedKeyRef.current = storageKey;
+  }, [storageKey]);
 
-  // Persist messages to localStorage whenever they change
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (!storageKey || loadedKeyRef.current !== storageKey) return;
     try {
-      window.localStorage.setItem(
-        AI_CHAT_STORAGE_KEY,
-        JSON.stringify(messages),
-      );
+      window.localStorage.setItem(storageKey, JSON.stringify(messages));
     } catch {
       // Ignore storage errors
     }
-  }, [messages]);
+  }, [messages, storageKey]);
 
   useEffect(
     () => () => {
@@ -249,10 +259,10 @@ export function useAiGeneration({
 
   const clearHistory = useCallback(() => {
     setMessages([]);
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(AI_CHAT_STORAGE_KEY);
+    if (storageKey && typeof window !== "undefined") {
+      window.localStorage.removeItem(storageKey);
     }
-  }, []);
+  }, [storageKey]);
 
   return {
     messages,

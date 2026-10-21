@@ -22,6 +22,7 @@ import {
 import { asyncHandler } from "../utils/asyncHandler";
 import { publishAiGenerateJob } from "@repo/queue-sync";
 import { randomUUID } from "node:crypto";
+import { buildReferenceBlock, hasSources, retrieveChunks } from "../utils/rag";
 import { sharedRedisClient as redisClient } from "@repo/redis-sync";
 import { INTERNAL_SECRET } from "@repo/backend-common/config";
 
@@ -1367,8 +1368,22 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
     );
   }
 
-  const { prompt, mode, selection, image } = bodyValidation.data;
+  const { mode, selection, image } = bodyValidation.data;
+  let prompt = bodyValidation.data.prompt;
   const jobId = randomUUID();
+
+  // Ground fresh diagrams (and edits) in the canvas's uploaded sources. Retrieval
+  // failures must never block generation, so fall back to the plain prompt.
+  if (mode !== "summarize" && mode !== "image") {
+    try {
+      if (await hasSources(roomId)) {
+        const chunks = await retrieveChunks(roomId, prompt.slice(0, 600));
+        prompt = buildReferenceBlock(chunks) + prompt;
+      }
+    } catch (error) {
+      console.warn("[AI] source retrieval skipped:", (error as Error).message);
+    }
+  }
 
   const initialEntry: AiJobEntry = {
     status: "pending",

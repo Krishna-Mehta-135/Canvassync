@@ -692,6 +692,9 @@ export function attachEvents(
   };
 
   const handleMouseDownInternal = (e: PointerEvent) => {
+    // Right-click opens the context menu, which swallows the matching pointerup;
+    // starting a gesture here would leave it stuck to the mouse.
+    if (e.button === 2) return;
     canvas.setPointerCapture(e.pointerId);
     const screenPoint = getMousePos(canvas, e);
     activePointers.set(e.pointerId, screenPoint);
@@ -1192,9 +1195,7 @@ export function attachEvents(
       freehandPoints = finalizeFreehandStroke(
         state,
         freehandPoints,
-        setSelection,
         requestRender,
-        resetToSelectTool,
         freehandStrokeStyle,
       );
       freehandStrokeStyle = undefined;
@@ -1305,6 +1306,14 @@ export function attachEvents(
     }
   };
 
+  const handleContextMenu = () => {
+    activePointers.clear();
+    selectionBox = null;
+    stopTransientInteractions();
+    updateCursor();
+    requestRender();
+  };
+
   const handleMouseLeave = () => {
     lastPointer = null;
     options.onCursorChange?.(null);
@@ -1316,6 +1325,7 @@ export function attachEvents(
   canvas.addEventListener("pointercancel", handlePointerCancel);
   canvas.addEventListener("dblclick", handleDoubleClick);
   canvas.addEventListener("pointerleave", handleMouseLeave);
+  canvas.addEventListener("contextmenu", handleContextMenu);
 
   return {
     deleteSelection,
@@ -1468,6 +1478,7 @@ export function attachEvents(
       canvas.removeEventListener("pointercancel", handlePointerCancel);
       canvas.removeEventListener("dblclick", handleDoubleClick);
       canvas.removeEventListener("pointerleave", handleMouseLeave);
+      canvas.removeEventListener("contextmenu", handleContextMenu);
       detachViewportEvents();
       textEditingController.dispose();
     },

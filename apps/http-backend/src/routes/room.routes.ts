@@ -26,6 +26,13 @@ import {
 } from "../controllers/room.controller";
 
 import {
+  listSources,
+  addSource,
+  deleteSource,
+  getSourceSuggestions,
+} from "../controllers/sources.controller";
+
+import {
   getPublicLinkStatus,
   enablePublicLink,
   disablePublicLink,
@@ -105,5 +112,11 @@ roomRouter.get(
   authenticate,
   getAiGenerateStatus,
 );
+
+// Reference sources (RAG)
+roomRouter.get("/:roomId/sources", authenticate, listSources);
+roomRouter.get("/:roomId/sources/suggestions", authenticate, getSourceSuggestions);
+roomRouter.post("/:roomId/sources", authenticate, addSource);
+roomRouter.delete("/:roomId/sources/:sourceId", authenticate, deleteSource);
 
 export { roomRouter };

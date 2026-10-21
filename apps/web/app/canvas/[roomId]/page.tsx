@@ -2019,6 +2019,7 @@ export default function CanvasPage() {
 
   const ai = useAiGeneration({
     roomId: resolvedRoomId,
+    userId: syncResult.currentUserId,
     httpBackend: HTTP_BACKEND,
     apiClient,
     onShapesGenerated: handleAiShapesGenerated,

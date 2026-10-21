@@ -56,6 +56,7 @@ model Room {
   // Unguessable token for the read-only public view link; null = link disabled.
   publicToken String? @unique
   accessRequests RoomAccessRequest[]
+  sources   RoomSource[]
 
   @@unique([adminId, slug])
 }
@@ -163,4 +164,31 @@ model RoomSlide {
   room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@index([roomId, position])
+}
+
+// Reference material attached to a canvas; chunked + embedded for retrieval (RAG).
+model RoomSource {
+  id        Int           @id @default(autoincrement())
+  roomId    Int
+  userId    String
+  name      String
+  charCount Int
+  createdAt DateTime      @default(now())
+  room      Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  chunks    SourceChunk[]
+
+  @@index([roomId, createdAt])
+}
+
+model SourceChunk {
+  id        Int        @id @default(autoincrement())
+  sourceId  Int
+  roomId    Int
+  position  Int
+  content   String
+  embedding Float[]
+  source    RoomSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([sourceId, position])
 }

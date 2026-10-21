@@ -36,6 +36,18 @@ export const RoomIdParamSchema = z.object({
   roomId: z.coerce.number().int().positive(),
 });
 
+export const MAX_SOURCE_CHARS = 200_000;
+
+export const AddSourceSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  text: z.string().min(20).max(MAX_SOURCE_CHARS),
+});
+
+export const SourceIdParamSchema = z.object({
+  roomId: z.coerce.number().int().positive(),
+  sourceId: z.coerce.number().int().positive(),
+});
+
 export const RoomHistorySnapshotParamsSchema = z.object({
   roomId: z.coerce.number().int().positive(),
   snapshotId: z.coerce.number().int().positive(),

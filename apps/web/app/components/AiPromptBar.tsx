@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
 import { ChatMessage } from "../../hooks/useAiGeneration";
+import { AiSourcesPanel } from "./AiSourcesPanel";
 
 interface AiChatModalProps {
   roomId: number | null;
@@ -12,6 +13,7 @@ interface AiChatModalProps {
   apiClient: {
     post: (url: string, data?: unknown) => Promise<{ data: unknown }>;
     get: (url: string) => Promise<{ data: unknown }>;
+    delete?: (url: string) => Promise<{ data: unknown }>;
   };
   getCurrentShapes: () => unknown[];
   // Props from useAiGeneration hook
@@ -152,6 +154,8 @@ export function AiChatModal({
   isOpen,
   onClose,
   isDark,
+  httpBackend,
+  apiClient,
   getCurrentShapes,
   messages,
   isGenerating,
@@ -437,6 +441,17 @@ export function AiChatModal({
       </div>
 
       {/* ── Input bar ── */}
+      <AiSourcesPanel
+        roomId={roomId}
+        isDark={isDark}
+        httpBackend={httpBackend}
+        apiClient={apiClient}
+        onPickQuestion={(q) => {
+          setInput(q);
+          setTimeout(() => textareaRef.current?.focus(), 50);
+        }}
+      />
+
       <div
         className={`shrink-0 border-t px-3 pb-3 pt-2.5 ${dividerBg.replace("bg-", "border-")}`}
       >
