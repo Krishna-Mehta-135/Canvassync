@@ -12,6 +12,7 @@ import { roomRouter } from "./routes/room.routes";
 import { publicRouter } from "./routes/public.routes";
 import { rateLimitMiddleware } from "./middlewares/rate-limit.middleware";
 import { receiveAiResult } from "./controllers/room.controller";
+import { WEB_APP_URL } from "@repo/backend-common/config";
 
 const app: Express = express();
 
@@ -26,6 +27,12 @@ const productionOrigins: string[] = (process.env.ALLOWED_ORIGINS ?? "")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
+
+// Always allow the configured frontend origin. This keeps production auth
+// functional even if ALLOWED_ORIGINS is omitted from a deployment secret.
+if (WEB_APP_URL && !productionOrigins.includes(WEB_APP_URL)) {
+  productionOrigins.push(WEB_APP_URL);
+}
 
 const allowedOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 

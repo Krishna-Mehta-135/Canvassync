@@ -3,7 +3,7 @@
 /* File intent: Landing-style sign-in and sign-up surface for Canvas access. */
 
 import { useState, FormEvent, useEffect } from "react";
-import { AxiosError } from "axios";
+import axios, { AxiosError } from "axios";
 import { Eye, EyeOff, Github, Loader2 } from "lucide-react";
 
 const GoogleIcon = ({ className }: { className?: string }) => (
@@ -70,7 +70,13 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
     let isUnmounted = false;
     const checkExistingSession = async () => {
       try {
-        await apiClient.get(`${API_BASE}/auth/current-user`);
+        // The login page only needs to detect an existing session. Do not run
+        // the full refresh interceptor here: an unavailable API should not
+        // keep the auth screen stuck behind two network timeouts.
+        await axios.get(`${API_BASE}/auth/current-user`, {
+          withCredentials: true,
+          timeout: 3000,
+        });
         if (isUnmounted) return;
         const redirectTarget = searchParams.get("redirect");
         window.location.href =
@@ -98,7 +104,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
       const payload = isSignIn
         ? { email, password }
         : { name, email, password };
-      await apiClient.post(endpoint, payload);
+      await apiClient.post(endpoint, payload, { timeout: 5000 });
       const redirectTarget = searchParams.get("redirect");
       if (redirectTarget) {
         window.location.href = redirectTarget;
@@ -109,6 +115,9 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
       const axiosError = err as AxiosError<{ message: string }>;
       const message =
         axiosError.response?.data?.message ||
+        (axiosError.code === "ECONNABORTED" || !axiosError.response
+          ? "Canvas is taking too long to respond. Please try again in a moment."
+          : null) ||
         (isSignIn
           ? "Invalid email or password."
           : "Something went wrong. Please try again.");

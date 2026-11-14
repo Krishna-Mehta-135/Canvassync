@@ -15,6 +15,9 @@ const AUTH_DEBUG = process.env.NEXT_PUBLIC_AUTH_DEBUG === "true";
 
 const apiClient = axios.create({
   withCredentials: true,
+  // Do not leave auth requests hanging indefinitely when the API DNS,
+  // reverse proxy, or deployment is unavailable.
+  timeout: 10000,
 });
 
 let refreshPromise: Promise<void> | null = null;
