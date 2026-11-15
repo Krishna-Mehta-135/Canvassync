@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:projectbench:result-schema:v1",
+  "title": "ProjectBench result v1",
+  "description": "A single reproducible local benchmark result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "claim_id",
+    "project",
+    "variant",
+    "workload",
+    "repetition",
+    "started_at",
+    "duration_seconds",
+    "metrics",
+    "environment",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "claim_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "type": "string",
+      "minLength": 1
+    },
+    "variant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workload": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repetition": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/metric"
+      }
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "unit", "value"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "number"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit",
+        "images",
+        "host_cpu",
+        "sut_cpuset",
+        "sut_memory_mb",
+        "generator_cpu_peak_percent",
+        "docker",
+        "os"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "images": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "host_cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sut_cpuset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sut_memory_mb": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "generator_cpu_peak_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "docker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
