@@ -1,0 +1,213 @@
+name: projectbench-w2
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: canvas
+    volumes:
+      - bench_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d canvas"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    mem_limit: 384m
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - bench_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    mem_limit: 384m
+
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    mem_limit: 384m
+
+  fake-gemini:
+    build:
+      context: .
+      dockerfile: bench/fake-gemini/Dockerfile
+    environment:
+      FAKE_GEMINI_DELAY_MS: ${FAKE_GEMINI_DELAY_MS:-0}
+      FAKE_GEMINI_TOKENS_PER_SECOND: ${FAKE_GEMINI_TOKENS_PER_SECOND:-0}
+      FAKE_GEMINI_429_RATE: ${FAKE_GEMINI_429_RATE:-0}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    mem_limit: 384m
+
+  db-init:
+    build:
+      context: .
+      dockerfile: apps/http-backend/Dockerfile
+    command: ["packages/db/node_modules/.bin/prisma", "db", "push", "--config", "packages/db/prisma.config.ts", "--schema", "packages/db/prisma/schema.prisma"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/canvas
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 384m
+
+  db-seed:
+    image: postgres:16-alpine
+    command: ["sh", "-c", "psql postgresql://postgres:postgres@postgres:5432/canvas -v ON_ERROR_STOP=1 -f /seed/seed.sql"]
+    volumes:
+      - ./bench/seed.sql:/seed/seed.sql:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    mem_limit: 384m
+
+  http-backend:
+    build:
+      context: .
+      dockerfile: apps/http-backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/canvas
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: projectbench-local-only-jwt-secret
+      INTERNAL_SECRET: projectbench-local-only-internal-secret
+      GEMINI_API_KEY: fake-gemini-key
+      GEMINI_PROVIDER: fake
+      GEMINI_BASE_URL: http://fake-gemini:8088/v1beta
+      WEB_APP_URL: http://localhost:13000
+      ALLOWED_ORIGINS: http://localhost:13000
+    ports:
+      - "127.0.0.1:13001:3001"
+    cpuset: "0-1"
+    mem_limit: 384m
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      fake-gemini:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:13001/api/v1
+      NEXT_PUBLIC_WS_URL: ws://localhost:18081
+    ports:
+      - "127.0.0.1:13000:3000"
+    cpuset: "0-1"
+    mem_limit: 384m
+    depends_on:
+      http-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000 >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  ws-backend:
+    build:
+      context: .
+      dockerfile: apps/ws-backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      WS_PORT: 8081
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/canvas
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: projectbench-local-only-jwt-secret
+      INTERNAL_SECRET: projectbench-local-only-internal-secret
+    ports:
+      - "127.0.0.1:18081:8081"
+    cpuset: "0-1"
+    mem_limit: 384m
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  ai-worker:
+    build:
+      context: .
+      dockerfile: apps/ai-worker/Dockerfile
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/canvas
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: projectbench-local-only-jwt-secret
+      INTERNAL_SECRET: projectbench-local-only-internal-secret
+      HTTP_BACKEND_INTERNAL_URL: http://http-backend:3001
+      GEMINI_API_KEY: fake-gemini-key
+      GEMINI_PROVIDER: fake
+      GEMINI_BASE_URL: http://fake-gemini:8088/v1beta
+      GEMINI_MODEL_CANDIDATES: bench-model
+    cpuset: "0-1"
+    mem_limit: 384m
+    depends_on:
+      http-backend:
+        condition: service_healthy
+      fake-gemini:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  generator:
+    build:
+      context: .
+      dockerfile: bench/generator.Dockerfile
+    cpuset: "2-3"
+    mem_limit: 384m
+    depends_on:
+      http-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  bench_postgres:
+  bench_redis:

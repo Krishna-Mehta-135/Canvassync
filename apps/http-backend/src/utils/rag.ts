@@ -3,7 +3,8 @@ import { prismaClient } from "@repo/db/client";
 
 // File intent: Chunk, embed and retrieve per-canvas reference material (RAG) using Gemini embeddings.
 
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const GEMINI_BASE =
+  process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta";
 const EMBED_MODEL = "gemini-embedding-001";
 const EMBED_DIMENSIONS = 768;
 const EMBED_BATCH_SIZE = 50;

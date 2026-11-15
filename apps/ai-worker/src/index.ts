@@ -41,6 +41,9 @@ for (const envPath of envCandidates) {
 // Config
 // ---------------------------------------------------------------------------
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_PROVIDER = process.env.GEMINI_PROVIDER ?? "google";
+const GEMINI_BASE_URL =
+  process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com/v1beta";
 const INTERNAL_SECRET =
   process.env.INTERNAL_SECRET ?? "canvas-internal-dev-secret-2024";
 const HTTP_BACKEND_INTERNAL_URL =
@@ -160,20 +163,66 @@ Rules: never invent facts that are not in the outline; keep every section short;
 // ---------------------------------------------------------------------------
 // Build the Gemini model using getGenerativeModel
 // ---------------------------------------------------------------------------
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY ?? "unused-provider-key");
+
+type ModelResponse = {
+  response: {
+    text: () => string;
+    candidates?: Array<{ finishReason?: string }>;
+  };
+};
+type ModelLike = { generateContent: (input: unknown) => Promise<ModelResponse> };
+
+class HttpGeminiModel implements ModelLike {
+  constructor(private readonly modelName: string) {}
+
+  async generateContent(input: unknown): Promise<ModelResponse> {
+    const contents = Array.isArray(input)
+      ? [{ parts: input }]
+      : [{ parts: [{ text: String(input) }] }];
+    const response = await fetch(
+      `${GEMINI_BASE_URL.replace(/\/$/, "")}/models/${this.modelName}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": GEMINI_API_KEY ?? "fake-gemini-key",
+        },
+        body: JSON.stringify({ contents }),
+      },
+    );
+    if (!response.ok) throw new Error(`Gemini provider returned HTTP ${response.status}`);
+    const body = (await response.json()) as {
+      candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const text = body.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    return {
+      response: {
+        text: () => text,
+        candidates: body.candidates?.map((candidate) => ({ finishReason: candidate.finishReason })),
+      },
+    };
+  }
+}
 
 const modelCache = new Map<
   string,
-  ReturnType<typeof genAI.getGenerativeModel>
+  ModelLike
 >();
 
 type ModelKind = "generate" | "edit" | "summarize" | "spec";
 
-function getModel(modelName: string, kind: ModelKind = "generate") {
+function getModel(modelName: string, kind: ModelKind = "generate"): ModelLike {
   const cacheKey = `${kind}:${modelName}`;
   const cached = modelCache.get(cacheKey);
   if (cached) {
     return cached;
+  }
+
+  if (GEMINI_PROVIDER === "fake") {
+    const model = new HttpGeminiModel(modelName);
+    modelCache.set(cacheKey, model);
+    return model;
   }
 
   const model = genAI.getGenerativeModel({
@@ -201,8 +250,9 @@ function getModel(modelName: string, kind: ModelKind = "generate") {
           } as Record<string, unknown>),
   });
 
-  modelCache.set(cacheKey, model);
-  return model;
+  const typedModel = model as unknown as ModelLike;
+  modelCache.set(cacheKey, typedModel);
+  return typedModel;
 }
 
 function sleep(ms: number) {
