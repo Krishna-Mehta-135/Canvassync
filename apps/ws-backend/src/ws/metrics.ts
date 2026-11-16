@@ -30,38 +30,42 @@ type CounterKey =
 
 type Counters = Record<CounterKey, number>;
 
-const totals: Counters = {
-  connectionsOpened: 0,
-  connectionsClosed: 0,
-  messagesReceived: 0,
-  bytesReceived: 0,
-  invalidJsonPayloads: 0,
-  invalidMessages: 0,
-  oversizedMessages: 0,
-  rateLimitedSnapshots: 0,
-  versionMismatches: 0,
-  snapshotsCommitted: 0,
-  snapshotCommitFailures: 0,
-  redisFanoutEvents: 0,
-  snapshotCommitLatencyLe10ms: 0,
-  snapshotCommitLatencyLe50ms: 0,
-  snapshotCommitLatencyLe100ms: 0,
-  snapshotCommitLatencyGt100ms: 0,
-  snapshotProcessLatencyLe25ms: 0,
-  snapshotProcessLatencyLe75ms: 0,
-  snapshotProcessLatencyLe150ms: 0,
-  snapshotProcessLatencyGt150ms: 0,
-  redisFanoutLagLe10ms: 0,
-  redisFanoutLagLe50ms: 0,
-  redisFanoutLagLe100ms: 0,
-  redisFanoutLagGt100ms: 0,
-  durableEventsConsumed: 0,
-  durablePublishFailures: 0,
-  duplicateCrossNodeEvents: 0,
-  crossNodeVersionRegressions: 0,
-};
+function emptyCounters(): Counters {
+  return {
+    connectionsOpened: 0,
+    connectionsClosed: 0,
+    messagesReceived: 0,
+    bytesReceived: 0,
+    invalidJsonPayloads: 0,
+    invalidMessages: 0,
+    oversizedMessages: 0,
+    rateLimitedSnapshots: 0,
+    versionMismatches: 0,
+    snapshotsCommitted: 0,
+    snapshotCommitFailures: 0,
+    redisFanoutEvents: 0,
+    snapshotCommitLatencyLe10ms: 0,
+    snapshotCommitLatencyLe50ms: 0,
+    snapshotCommitLatencyLe100ms: 0,
+    snapshotCommitLatencyGt100ms: 0,
+    snapshotProcessLatencyLe25ms: 0,
+    snapshotProcessLatencyLe75ms: 0,
+    snapshotProcessLatencyLe150ms: 0,
+    snapshotProcessLatencyGt150ms: 0,
+    redisFanoutLagLe10ms: 0,
+    redisFanoutLagLe50ms: 0,
+    redisFanoutLagLe100ms: 0,
+    redisFanoutLagGt100ms: 0,
+    durableEventsConsumed: 0,
+    durablePublishFailures: 0,
+    duplicateCrossNodeEvents: 0,
+    crossNodeVersionRegressions: 0,
+  };
+}
 
-let windowCounters: Counters = { ...totals };
+const totals: Counters = emptyCounters();
+
+let windowCounters: Counters = emptyCounters();
 let reportStarted = false;
 
 function inc(counter: CounterKey, delta = 1) {
@@ -189,6 +193,23 @@ export function recordCrossNodeVersionRegression() {
   inc("crossNodeVersionRegressions");
 }
 
+export function metricsEnabled() {
+  return (
+    process.env.WS_BENCH_SYNC_VARIANT === "baseline" ||
+    process.env.WS_BENCH_SYNC_VARIANT === "candidate" ||
+    process.env.WS_METRICS_ENABLED === "true"
+  );
+}
+
+export function renderMetrics() {
+  if (!metricsEnabled()) return null;
+  return (
+    Object.entries(totals)
+      .map(([name, value]) => `canvassync_ws_${name} ${value}`)
+      .join("\n") + "\n"
+  );
+}
+
 export function startMetricsReporter(
   intervalMs = Number(process.env.WS_METRICS_LOG_INTERVAL_MS ?? 30000),
 ) {
@@ -205,36 +226,7 @@ export function startMetricsReporter(
 
   setInterval(() => {
     const snapshot = windowCounters;
-    windowCounters = {
-      connectionsOpened: 0,
-      connectionsClosed: 0,
-      messagesReceived: 0,
-      bytesReceived: 0,
-      invalidJsonPayloads: 0,
-      invalidMessages: 0,
-      oversizedMessages: 0,
-      rateLimitedSnapshots: 0,
-      versionMismatches: 0,
-      snapshotsCommitted: 0,
-      snapshotCommitFailures: 0,
-      redisFanoutEvents: 0,
-      snapshotCommitLatencyLe10ms: 0,
-      snapshotCommitLatencyLe50ms: 0,
-      snapshotCommitLatencyLe100ms: 0,
-      snapshotCommitLatencyGt100ms: 0,
-      snapshotProcessLatencyLe25ms: 0,
-      snapshotProcessLatencyLe75ms: 0,
-      snapshotProcessLatencyLe150ms: 0,
-      snapshotProcessLatencyGt150ms: 0,
-      redisFanoutLagLe10ms: 0,
-      redisFanoutLagLe50ms: 0,
-      redisFanoutLagLe100ms: 0,
-      redisFanoutLagGt100ms: 0,
-      durableEventsConsumed: 0,
-      durablePublishFailures: 0,
-      duplicateCrossNodeEvents: 0,
-      crossNodeVersionRegressions: 0,
-    };
+    windowCounters = emptyCounters();
 
     console.info("[WS][metrics]", {
       intervalMs,

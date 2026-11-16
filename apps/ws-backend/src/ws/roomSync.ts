@@ -40,12 +40,56 @@ export function cacheRoomSyncState(state: RoomSyncState) {
   roomSyncState.set(state.roomId, state);
 }
 
+export function resetBenchRoomSyncState(roomId: number) {
+  roomSyncState.delete(roomId);
+  roomCrdtTombstones.delete(roomId);
+}
+
+export async function warmBenchRoomSyncState(roomId: number) {
+  const shapes = await prismaClient.shape.findMany({
+    where: { roomId, deleted: false },
+    orderBy: { createdAt: "asc" },
+  });
+  const version = await getRoomVersion(roomId);
+  await setRoomSnapshot(
+    roomId,
+    shapes.map((shape) => shape.props as Shape),
+    version,
+  );
+}
+
+function useBenchBaseline() {
+  return process.env.WS_BENCH_SYNC_VARIANT === "baseline";
+}
+
+function useBenchCandidate() {
+  return process.env.WS_BENCH_SYNC_VARIANT === "candidate";
+}
+
 export async function initializeRoomSync(roomId: number) {
+  if (useBenchBaseline()) {
+    const shapes = await prismaClient.shape.findMany({
+      where: { roomId, deleted: false },
+      orderBy: { createdAt: "asc" },
+    });
+    const state: RoomSyncState = {
+      roomId,
+      version: 0,
+      shapes: shapes.map((shape) => shape.props as Shape),
+    };
+    cacheRoomSyncState(state);
+    return state;
+  }
+
   // Redis wins first. If it has the latest snapshot, we reuse it directly.
   const redisState = await getRoomSnapshot(roomId);
   if (redisState) {
     cacheRoomSyncState(redisState);
     return redisState;
+  }
+
+  if (useBenchCandidate()) {
+    throw new Error("W4 candidate Redis snapshot is not warm");
   }
 
   // If Redis has the version but no snapshot blob, preserve version continuity

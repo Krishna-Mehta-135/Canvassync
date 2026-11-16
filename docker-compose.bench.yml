@@ -115,6 +115,7 @@ services:
       retries: 20
 
   web:
+    profiles: ["w2"]
     build:
       context: .
       dockerfile: apps/web/Dockerfile
@@ -135,6 +136,7 @@ services:
       retries: 20
 
   ws-backend:
+    profiles: ["w2"]
     build:
       context: .
       dockerfile: apps/ws-backend/Dockerfile
@@ -164,7 +166,72 @@ services:
       timeout: 3s
       retries: 20
 
+  ws-baseline:
+    profiles: ["w4"]
+    build:
+      context: .
+      dockerfile: apps/ws-backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      WS_PORT: 8081
+      WS_BENCH_SYNC_VARIANT: baseline
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/canvas
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: projectbench-local-only-jwt-secret
+      INTERNAL_SECRET: projectbench-local-only-internal-secret
+    ports:
+      - "127.0.0.1:18082:8081"
+    cpuset: "0-1"
+    mem_limit: 384m
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  ws-candidate:
+    profiles: ["w4"]
+    build:
+      context: .
+      dockerfile: apps/ws-backend/Dockerfile
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      WS_PORT: 8081
+      WS_BENCH_SYNC_VARIANT: candidate
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/canvas
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      JWT_SECRET: projectbench-local-only-jwt-secret
+      INTERNAL_SECRET: projectbench-local-only-internal-secret
+    ports:
+      - "127.0.0.1:18083:8081"
+    cpuset: "0-1"
+    mem_limit: 384m
+    depends_on:
+      db-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health >/dev/null"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   ai-worker:
+    profiles: ["w2"]
     build:
       context: .
       dockerfile: apps/ai-worker/Dockerfile
@@ -194,6 +261,7 @@ services:
       retries: 20
 
   generator:
+    profiles: ["w2"]
     build:
       context: .
       dockerfile: bench/generator.Dockerfile
@@ -201,6 +269,28 @@ services:
     mem_limit: 384m
     depends_on:
       http-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  generator-w4:
+    profiles: ["w4"]
+    build:
+      context: .
+      dockerfile: bench/generator.Dockerfile
+    environment:
+      PROJECTBENCH_OUTPUT_DIR: /bench/results
+    volumes:
+      - ./bench/results:/bench/results
+    cpuset: "2-3"
+    mem_limit: 384m
+    depends_on:
+      ws-baseline:
+        condition: service_healthy
+      ws-candidate:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "process.exit(0)"]
