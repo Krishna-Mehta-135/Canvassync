@@ -17,8 +17,8 @@ bench-trivial:
 bench-w4-up:
 	@test "$$(docker info --format '{{.MemTotal}}')" -ge 12000000000 || { echo 'W4 requires at least 12 GB Docker memory' >&2; exit 2; }
 	$(PROJECTBENCH_W4_COMPOSE) up -d --build --wait
-	@seed_id=$$($(PROJECTBENCH_W4_COMPOSE) ps -aq db-seed); test -n "$$seed_id"; test "$$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' $$seed_id)" = "exited 0"
-	@for service in http-backend ws-baseline ws-candidate generator-w4; do id=$$($(PROJECTBENCH_W4_COMPOSE) ps -q $$service); test -n "$$id"; test "$$(docker inspect -f '{{.State.Health.Status}}' $$id)" = healthy; done
+	$(PROJECTBENCH_W4_COMPOSE) exec -T postgres psql -U postgres -d canvas -v ON_ERROR_STOP=1 < bench/seed.sql
+	@for service in ws-baseline ws-candidate generator-w4; do id=$$($(PROJECTBENCH_W4_COMPOSE) ps -q $$service); test -n "$$id"; test "$$(docker inspect -f '{{.State.Health.Status}}' $$id)" = healthy; done
 
 bench-w4-down:
 	$(PROJECTBENCH_W4_COMPOSE) down

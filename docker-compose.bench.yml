@@ -41,6 +41,7 @@ services:
     mem_limit: 384m
 
   fake-gemini:
+    profiles: ["w2"]
     build:
       context: .
       dockerfile: bench/fake-gemini/Dockerfile
@@ -68,6 +69,7 @@ services:
     mem_limit: 384m
 
   db-seed:
+    profiles: ["w2"]
     image: postgres:16-alpine
     command: ["sh", "-c", "psql postgresql://postgres:postgres@postgres:5432/canvas -v ON_ERROR_STOP=1 -f /seed/seed.sql"]
     volumes:
@@ -78,6 +80,7 @@ services:
     mem_limit: 384m
 
   http-backend:
+    profiles: ["w2"]
     build:
       context: .
       dockerfile: apps/http-backend/Dockerfile
@@ -186,7 +189,7 @@ services:
     cpuset: "0-1"
     mem_limit: 384m
     depends_on:
-      db-seed:
+      db-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -218,7 +221,7 @@ services:
     cpuset: "0-1"
     mem_limit: 384m
     depends_on:
-      db-seed:
+      db-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
