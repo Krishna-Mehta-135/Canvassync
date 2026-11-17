@@ -6,6 +6,7 @@ import {
   assertResetResponse,
   assertSnapshotWarmResponse,
   cpuPercentFromUsage,
+  startGeneratorCpuSampler,
   discardWarmup,
   interleaveVariants,
   makeResult,
@@ -117,6 +118,33 @@ test("CPU gate uses only process.cpuUsage over the documented sample window", ()
   assert.doesNotThrow(() => assertCpuGate(70));
   assert.throws(() => assertCpuGate(70.01), /70%/);
   assert.throws(() => assertCpuGate(110), /110/);
+});
+
+test("generator CPU sampler records peak over complete one-second windows", () => {
+  let now = 0;
+  let used = 0;
+  let tick;
+  const sampler = startGeneratorCpuSampler({
+    now: () => now,
+    cpuUsage: (previous) =>
+      previous
+        ? { user: used - previous.user, system: 0 }
+        : { user: used, system: 0 },
+    schedule: (callback) => {
+      tick = callback;
+      return 1;
+    },
+    cancel: () => {},
+  });
+  now = 1000;
+  used = 500000;
+  tick();
+  now = 2000;
+  used = 1200000;
+  tick();
+  now = 2100;
+  used = 1300000;
+  assert.equal(sampler.stop(), 70);
 });
 
 test("provenance rejects placeholders and requires all runtime digests", () => {

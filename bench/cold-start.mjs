@@ -60,12 +60,42 @@ export function validateRepetitionPlan(measured, warmup, collected) {
   return measured;
 }
 
-// The sample window is exactly one socket open -> room_joined operation. CPU is
-// process.cpuUsage() delta divided by performance.now() wall-clock delta.
+// CPU is process time divided by wall time across a one-second sampling window.
 export function cpuPercentFromUsage(usage, elapsedMs) {
   if (!Number.isFinite(elapsedMs) || elapsedMs <= 0)
     throw new Error("CPU sample window must be positive");
   return ((usage.user + usage.system) / (elapsedMs * 1000)) * 100;
+}
+
+export function startGeneratorCpuSampler({
+  now = () => performance.now(),
+  cpuUsage = (previous) => process.cpuUsage(previous),
+  schedule = (callback) => setInterval(callback, 1000),
+  cancel = (timer) => clearInterval(timer),
+} = {}) {
+  let previousTime = now();
+  let previousUsage = cpuUsage();
+  let peak = 0;
+  let windows = 0;
+  const sample = () => {
+    const currentTime = now();
+    const delta = cpuUsage(previousUsage);
+    peak = Math.max(
+      peak,
+      cpuPercentFromUsage(delta, currentTime - previousTime),
+    );
+    previousTime = currentTime;
+    previousUsage = cpuUsage();
+    windows += 1;
+  };
+  const timer = schedule(sample);
+  return {
+    stop() {
+      cancel(timer);
+      if (windows === 0) sample();
+      return peak;
+    },
+  };
 }
 
 export function assertCpuGate(cpuPercent) {
@@ -203,7 +233,6 @@ async function join(url, token, roomId, shapes) {
   return new Promise((resolve, reject) => {
     let openedAt;
     let startedAt;
-    let cpuStarted;
     let settled = false;
     const finish = (error, value) => {
       if (settled) return;
@@ -221,7 +250,6 @@ async function join(url, token, roomId, shapes) {
       () => {
         openedAt = performance.now();
         startedAt = new Date().toISOString();
-        cpuStarted = process.cpuUsage();
         socket.send(JSON.stringify({ type: "join_room", roomId }));
       },
       { once: true },
@@ -237,12 +265,8 @@ async function join(url, token, roomId, shapes) {
       if (message.type !== "room_joined") return;
       try {
         const elapsedMs = performance.now() - openedAt;
-        const cpuPercent = cpuPercentFromUsage(
-          process.cpuUsage(cpuStarted),
-          elapsedMs,
-        );
         verifyRoomJoined(message, roomId, shapes);
-        finish(null, { elapsedMs, cpuPercent, startedAt });
+        finish(null, { elapsedMs, startedAt });
       } catch (error) {
         finish(error);
       }
@@ -292,54 +316,59 @@ async function main() {
   const table = [];
   const accepted = [];
 
-  for (const shapeCount of [100, 1000, 5000]) {
-    const roomId = Number(
-      process.env[`PROJECTBENCH_ROOM_${shapeCount}`] ?? roomIds[shapeCount],
-    );
-    const shapes = expectedShapes(shapeCount);
-    const samples = { baseline: [], candidate: [] };
-    for (let index = 0; index < warmup; index += 1) {
-      await warmSnapshot(urls.candidate, roomId);
-      await warmSnapshot(urls.baseline, roomId);
-      await resetRoom(urls.baseline, roomId);
-      await join(urls.baseline, token, roomId, shapes);
-      await resetRoom(urls.candidate, roomId);
-      await join(urls.candidate, token, roomId, shapes);
-    }
-    for (let index = 0; index < repetitions; index += 1) {
-      await warmSnapshot(urls.candidate, roomId);
-      await warmSnapshot(urls.baseline, roomId);
-      await resetRoom(urls.baseline, roomId);
-      const baseline = await join(urls.baseline, token, roomId, shapes);
-      await resetRoom(urls.candidate, roomId);
-      const candidate = await join(urls.candidate, token, roomId, shapes);
-      assertCpuGate(baseline.cpuPercent);
-      assertCpuGate(candidate.cpuPercent);
-      samples.baseline.push(baseline);
-      samples.candidate.push(candidate);
-      accepted.push({
-        variant: "baseline",
-        shapeCount,
-        repetition: index + 1,
-        sample: baseline,
+  const cpuSampler = startGeneratorCpuSampler();
+  let generatorCpuPeakPercent;
+  try {
+    for (const shapeCount of [100, 1000, 5000]) {
+      const roomId = Number(
+        process.env[`PROJECTBENCH_ROOM_${shapeCount}`] ?? roomIds[shapeCount],
+      );
+      const shapes = expectedShapes(shapeCount);
+      const samples = { baseline: [], candidate: [] };
+      for (let index = 0; index < warmup; index += 1) {
+        await warmSnapshot(urls.candidate, roomId);
+        await warmSnapshot(urls.baseline, roomId);
+        await resetRoom(urls.baseline, roomId);
+        await join(urls.baseline, token, roomId, shapes);
+        await resetRoom(urls.candidate, roomId);
+        await join(urls.candidate, token, roomId, shapes);
+      }
+      for (let index = 0; index < repetitions; index += 1) {
+        await warmSnapshot(urls.candidate, roomId);
+        await warmSnapshot(urls.baseline, roomId);
+        await resetRoom(urls.baseline, roomId);
+        const baseline = await join(urls.baseline, token, roomId, shapes);
+        await resetRoom(urls.candidate, roomId);
+        const candidate = await join(urls.candidate, token, roomId, shapes);
+        samples.baseline.push(baseline);
+        samples.candidate.push(candidate);
+        accepted.push({
+          variant: "baseline",
+          shapeCount,
+          repetition: index + 1,
+          sample: baseline,
+        });
+        accepted.push({
+          variant: "candidate",
+          shapeCount,
+          repetition: index + 1,
+          sample: candidate,
+        });
+      }
+      table.push({
+        shapes: shapeCount,
+        baseline: summarizeSamples(
+          samples.baseline.map(({ elapsedMs }) => elapsedMs),
+        ),
+        candidate: summarizeSamples(
+          samples.candidate.map(({ elapsedMs }) => elapsedMs),
+        ),
       });
-      accepted.push({
-        variant: "candidate",
-        shapeCount,
-        repetition: index + 1,
-        sample: candidate,
-      });
     }
-    table.push({
-      shapes: shapeCount,
-      baseline: summarizeSamples(
-        samples.baseline.map(({ elapsedMs }) => elapsedMs),
-      ),
-      candidate: summarizeSamples(
-        samples.candidate.map(({ elapsedMs }) => elapsedMs),
-      ),
-    });
+  } finally {
+    generatorCpuPeakPercent = cpuSampler.stop();
   }
+  assertCpuGate(generatorCpuPeakPercent);
 
   if (accepted.length !== 180)
     throw new Error(`W4 requires 180 accepted samples, got ${accepted.length}`);
@@ -354,7 +383,7 @@ async function main() {
         startedAt: sample.startedAt,
         provenance: validateProvenance({
           ...provenance,
-          generator_cpu_peak_percent: sample.cpuPercent,
+          generator_cpu_peak_percent: generatorCpuPeakPercent,
         }),
       }),
       `${outputDirectory}/w4-cold-start-${variant}-${shapeCount}-${repetition}.json`,
