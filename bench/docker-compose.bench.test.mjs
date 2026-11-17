@@ -89,3 +89,12 @@ test("W4 baseline and candidate run the same built image", () => {
   assert.match(candidate, new RegExp(`^    image: ${image}$`, "m"));
   assert.doesNotMatch(candidate, /^    build:$/m);
 });
+
+test("W4 passes running-container image digests to the harness", () => {
+  const makefile = readFileSync(new URL("../Makefile", import.meta.url), "utf8");
+  const w4 = makefile.slice(makefile.indexOf("bench-w4:\n"));
+  for (const service of ["generator-w4", "ws-baseline", "ws-candidate"]) {
+    assert.match(w4, new RegExp(`docker inspect -f '\\{\\{.Image\\}\\}' .*ps -q ${service}`));
+  }
+  assert.doesNotMatch(w4, /images -q/);
+});

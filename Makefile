@@ -27,9 +27,9 @@ bench-w4:
 	@commit=$$(git rev-parse HEAD); \
 	 host_cpu=$$(sysctl -n machdep.cpu.brand_string); \
 	 docker_version=$$(docker version --format '{{.Server.Version}}'); \
-	 generator_image=$$($(PROJECTBENCH_W4_COMPOSE) images -q generator-w4); \
-	 baseline_image=$$($(PROJECTBENCH_W4_COMPOSE) images -q ws-baseline); \
-	 candidate_image=$$($(PROJECTBENCH_W4_COMPOSE) images -q ws-candidate); \
+	 generator_image=$$(docker inspect -f '{{.Image}}' $$($(PROJECTBENCH_W4_COMPOSE) ps -q generator-w4)); \
+	 baseline_image=$$(docker inspect -f '{{.Image}}' $$($(PROJECTBENCH_W4_COMPOSE) ps -q ws-baseline)); \
+	 candidate_image=$$(docker inspect -f '{{.Image}}' $$($(PROJECTBENCH_W4_COMPOSE) ps -q ws-candidate)); \
 	 test -n "$$generator_image"; test -n "$$baseline_image"; test "$$baseline_image" = "$$candidate_image"; \
 	 $(PROJECTBENCH_W4_COMPOSE) exec -T \
 	   -e PROJECTBENCH_COMMIT="$$commit" \
