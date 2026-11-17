@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
 import { performance } from "node:perf_hooks";
+import { isDeepStrictEqual } from "node:util";
 import { writeResult } from "./w4-harness.mjs";
 
 const CPU_GATE_PERCENT = 70;
@@ -29,7 +30,7 @@ export function verifyRoomJoined(message, roomId, expectedShapes) {
   ) {
     throw new Error("room_joined shape count mismatch");
   }
-  if (JSON.stringify(message.shapes) !== JSON.stringify(expectedShapes)) {
+  if (!isDeepStrictEqual(message.shapes, expectedShapes)) {
     throw new Error("room_joined shape content mismatch");
   }
 }

@@ -53,6 +53,20 @@ test("room_joined self-check verifies deterministic identity, count, and content
       expected,
     ),
   );
+  assert.doesNotThrow(() =>
+    verifyRoomJoined(
+      {
+        type: "room_joined",
+        roomId: 7,
+        shapes: [
+          { x: 1, type: "rectangle", id: "shape-1" },
+          { x: 2, type: "rectangle", id: "shape-2" },
+        ],
+      },
+      7,
+      expected,
+    ),
+  );
   assert.throws(
     () =>
       verifyRoomJoined(
