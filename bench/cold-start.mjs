@@ -69,8 +69,8 @@ export function cpuPercentFromUsage(usage, elapsedMs) {
 }
 
 export function assertCpuGate(cpuPercent) {
-  if (!Number.isFinite(cpuPercent) || cpuPercent < 0 || cpuPercent > 100) {
-    throw new Error("CPU sample must be between 0 and 100%");
+  if (!Number.isFinite(cpuPercent) || cpuPercent < 0) {
+    throw new Error("CPU sample must be a non-negative finite percentage");
   }
   if (cpuPercent > CPU_GATE_PERCENT)
     throw new Error(`CPU gate exceeded ${CPU_GATE_PERCENT}%: ${cpuPercent}`);

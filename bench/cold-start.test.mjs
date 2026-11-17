@@ -116,6 +116,7 @@ test("CPU gate uses only process.cpuUsage over the documented sample window", ()
   assert.equal(cpuPercentFromUsage({ user: 3500, system: 0 }, 10), 35);
   assert.doesNotThrow(() => assertCpuGate(70));
   assert.throws(() => assertCpuGate(70.01), /70%/);
+  assert.throws(() => assertCpuGate(110), /110/);
 });
 
 test("provenance rejects placeholders and requires all runtime digests", () => {
