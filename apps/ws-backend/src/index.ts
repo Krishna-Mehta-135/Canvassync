@@ -27,6 +27,8 @@ import {
   persistShapes,
   roomCrdtTombstones,
   roomSyncState,
+  resetBenchRoomSyncState,
+  warmBenchRoomSyncState,
 } from "./ws/roomSync.js";
 import {
   NODE_ID,
@@ -47,6 +49,7 @@ import {
   recordInboundMessage,
   recordRedisFanoutEvent,
   startMetricsReporter,
+  renderMetrics,
 } from "./ws/metrics.js";
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8081);
@@ -54,6 +57,63 @@ const server = http.createServer((req, res) => {
   if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
     res.writeHead(200);
     res.end("OK");
+    return;
+  }
+  if (req.method === "GET" && req.url === "/metrics") {
+    const body = renderMetrics();
+    if (body === null) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/plain; version=0.0.4" });
+    res.end(body);
+    return;
+  }
+  if (
+    req.method === "POST" &&
+    (process.env.WS_BENCH_SYNC_VARIANT === "baseline" ||
+      process.env.WS_BENCH_SYNC_VARIANT === "candidate") &&
+    req.url?.startsWith("/__bench/reset-room-state")
+  ) {
+    const roomId = Number(
+      new URL(req.url, "http://localhost").searchParams.get("roomId"),
+    );
+    if (!Number.isInteger(roomId) || roomId <= 0) {
+      res.writeHead(400);
+      res.end("invalid roomId");
+      return;
+    }
+    resetBenchRoomSyncState(roomId);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({ roomId, statePresent: roomSyncState.has(roomId) }),
+    );
+    return;
+  }
+  if (
+    req.method === "POST" &&
+    (process.env.WS_BENCH_SYNC_VARIANT === "baseline" ||
+      process.env.WS_BENCH_SYNC_VARIANT === "candidate") &&
+    req.url?.startsWith("/__bench/warm-room-state")
+  ) {
+    const roomId = Number(
+      new URL(req.url, "http://localhost").searchParams.get("roomId"),
+    );
+    if (!Number.isInteger(roomId) || roomId <= 0) {
+      res.writeHead(400);
+      res.end("invalid roomId");
+      return;
+    }
+    void warmBenchRoomSyncState(roomId)
+      .then(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ roomId, snapshotWarmed: true }));
+      })
+      .catch(() => {
+        res.writeHead(500);
+        res.end("snapshot warm failed");
+      });
     return;
   }
   res.writeHead(404);
