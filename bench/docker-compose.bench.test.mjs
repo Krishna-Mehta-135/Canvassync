@@ -79,3 +79,13 @@ test("W4 seeds through its running Postgres service without starting the W2 seed
     /exec -T postgres psql .*ON_ERROR_STOP=1.*< bench\/seed\.sql/,
   );
 });
+
+test("W4 baseline and candidate run the same built image", () => {
+  const baseline = serviceBlock("ws-baseline");
+  const candidate = serviceBlock("ws-candidate");
+  const image = baseline.match(/^    image: (.+)$/m)?.[1];
+  assert.ok(image, "baseline must name the shared image");
+  assert.match(baseline, /^    build:$/m);
+  assert.match(candidate, new RegExp(`^    image: ${image}$`, "m"));
+  assert.doesNotMatch(candidate, /^    build:$/m);
+});

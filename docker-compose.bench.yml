@@ -171,6 +171,7 @@ services:
 
   ws-baseline:
     profiles: ["w4"]
+    image: projectbench-w4-ws:local
     build:
       context: .
       dockerfile: apps/ws-backend/Dockerfile
@@ -203,9 +204,7 @@ services:
 
   ws-candidate:
     profiles: ["w4"]
-    build:
-      context: .
-      dockerfile: apps/ws-backend/Dockerfile
+    image: projectbench-w4-ws:local
     environment:
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=256
