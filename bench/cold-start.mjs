@@ -140,16 +140,21 @@ export function makeResult({
 }) {
   return {
     schema_version: "1",
-    claim_id: "w4-canvassync-cold-start",
+    claim_id: "canvassync-redis-cold-start-latency",
     project: "canvassync",
     variant,
     workload: `cold-start-${shapeCount}-shapes`,
     repetition,
     started_at: startedAt,
     duration_seconds: elapsedMs / 1000,
-    metrics: [{ name: "cold_join_ms", unit: "milliseconds", value: elapsedMs }],
+    metrics: [
+      { name: "join_sync_latency_ms", unit: "milliseconds", value: elapsedMs },
+    ],
     environment: provenance,
-    limitations: ["Local Docker Compose only."],
+    limitations: [
+      "Docker on macOS runs in a VM.",
+      "The laptop is ARM and client and server share a host.",
+    ],
   };
 }
 

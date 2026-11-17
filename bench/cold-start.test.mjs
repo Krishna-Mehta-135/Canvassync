@@ -173,7 +173,7 @@ test("provenance rejects placeholders and requires all runtime digests", () => {
   );
 });
 
-test("per-sample results have exactly one cold_join_ms metric", () => {
+test("per-sample results use the ledger claim and latency metric", () => {
   const result = makeResult({
     variant: "candidate",
     shapeCount: 100,
@@ -192,8 +192,10 @@ test("per-sample results have exactly one cold_join_ms metric", () => {
     },
   });
   assert.deepEqual(result.metrics, [
-    { name: "cold_join_ms", unit: "milliseconds", value: 12.5 },
+    { name: "join_sync_latency_ms", unit: "milliseconds", value: 12.5 },
   ]);
+  assert.equal(result.claim_id, "canvassync-redis-cold-start-latency");
+  assert.ok(result.limitations.some((item) => item.includes("macOS")));
   assert.equal(result.duration_seconds, 0.0125);
   assert.equal(Object.hasOwn(result, "table"), false);
 });
